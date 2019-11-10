@@ -1,7 +1,5 @@
 import re
-
-iptablesBinary = "pcn-iptables"
-defaultChain = "FORWARD"
+import argparse
 
 srcIP = r'(?P<SrcIp>(?:(?:\d){1,3}\.){3}(?:\d){1,3})\/(?P<SrcNm>(?:\d){1,3})'
 dstIP = r'(?P<DstIp>(?:(?:\d){1,3}\.){3}(?:\d){1,3})\/(?P<DstNm>(?:\d){1,3})'
@@ -119,8 +117,23 @@ def parse_and_write_file(input_file, output_file):
 
 
 if __name__ == '__main__':
-    input_file_path = 'ruleset_acl1_100.txt'
-    output_file_path = 'ruleset_acl1_100_out.txt'
+    parser = argparse.ArgumentParser(description='Program used to convert Classbench rules into pcn/iptables rules')
+    parser.add_argument("-n", "--name", choices=["iptables", "pcn-iptables"], default="pcn-iptables", type=str,
+                        help="The name of the program to use")
+    parser.add_argument("-c", "--chain", choices=["INPUT", "FORWARD", "OUTPUT"], default="FORWARD", type=str,
+                        help="The chain where to append the rules")
+    parser.add_argument("-i", "--input-file", required=True, type=str, help="The Classbench input file")
+    parser.add_argument("-o", "--output-file", required=True, type=str,
+                        help="The output file where to same the ruleset")
+
+    args = parser.parse_args()
+
+    iptablesBinary = args.name
+    defaultChain = args.chain
+    input_file_path = args.i
+    output_file_path = args.o
 
     tot_input_lines, tot_output_lines = parse_and_write_file(input_file_path, output_file_path)
+
     print(f"Read and parsed a total of {tot_input_lines} from file and wrote {tot_output_lines} lines")
+    print(f"Output file created: {output_file_path}")
