@@ -1,5 +1,8 @@
 import re
 import argparse
+import socket
+
+protoTable = {num:name[8:] for name,num in vars(socket).items() if name.startswith("IPPROTO")}
 
 srcIP = r'(?P<SrcIp>(?:(?:\d){1,3}\.){3}(?:\d){1,3})\/(?P<SrcNm>(?:\d){1,3})'
 dstIP = r'(?P<DstIp>(?:(?:\d){1,3}\.){3}(?:\d){1,3})\/(?P<DstNm>(?:\d){1,3})'
@@ -43,9 +46,14 @@ def get_src_port_string(start, end, start_string):
         port_list.append(start_string + fr" --sport {start_port}")
         return port_list
 
-    while start_port <= end_port:
-        port_list.append(start_string + fr" --sport {start_port}")
-        start_port += 1
+    if not expandRange:
+        port_list.append(start_string + fr" --sport {start_port}:{end_port}")
+        return port_list
+    else:
+        while start_port <= end_port:
+            port_list.append(start_string + fr" --sport {start_port}")
+            start_port += 1
+
     return port_list
 
 
@@ -61,10 +69,29 @@ def get_dst_port_string(start, end, start_string):
         port_list.append(start_string + fr" --dport {start_port}")
         return port_list
 
-    while start_port <= end_port:
-        port_list.append(start_string + fr" --dport {start_port}")
-        start_port += 1
+    if not expandRange:
+        port_list.append(start_string + fr" --dport {start_port}:{end_port}")
+        return port_list
+    else:
+        while start_port <= end_port:
+            port_list.append(start_string + fr" --dport {start_port}")
+            start_port += 1
+
     return port_list
+
+
+def get_proto_string(proto, proto_mask, start_str):
+    proto = int(proto, 16)
+    proto_mask = int(proto_mask, 16)
+    proto_list = list()
+
+    assert proto in protoTable, "Unrecognized protocol"
+
+    if proto_mask == int("FF", 16):
+        proto_list.append(start_str + fr" -p {protoTable[proto]}")
+        return proto_list
+
+    return proto_list
 
 
 def parse_and_write_file(input_file, output_file):
@@ -107,6 +134,13 @@ def parse_and_write_file(input_file, output_file):
                 if len(dst_port_res) > 0:
                     string_list = dst_port_res
 
+            for start_str in string_list:
+                proto_res = get_proto_string(proto, proto_mask, start_str)
+                if len(dst_port_res) > 0:
+                    string_list = proto_res
+
+            string_list = [s + fr" -j {defaultAction}" for s in string_list]
+
             for item in string_list:
                 output_file.write("%s\n" % item)
                 output_lines += 1
@@ -125,13 +159,19 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--input-file", required=True, type=str, help="The Classbench input file")
     parser.add_argument("-o", "--output-file", required=True, type=str,
                         help="The output file where to same the ruleset")
+    parser.add_argument("-e", "--expand-range", type=bool, default=False,
+                        help="Create a separate rule for each port range value")
+    parser.add_argument("-j", "--default-action", choices=["ACCEPT", "DROP"], type=str, default="ACCEPT",
+                        help="Default action to use in the rule")
 
     args = parser.parse_args()
 
     iptablesBinary = args.name
     defaultChain = args.chain
-    input_file_path = args.i
-    output_file_path = args.o
+    input_file_path = args.input_file
+    output_file_path = args.output_file
+    expandRange = args.expand_range
+    defaultAction = args.default_action
 
     tot_input_lines, tot_output_lines = parse_and_write_file(input_file_path, output_file_path)
 
