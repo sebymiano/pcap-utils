@@ -1,8 +1,9 @@
 # classbench-to-iptables
-Convert classbench rules to bpf/-iptables counterparts
+Convert classbench [1] rules to bpf/-iptables counterparts
 
 This repository contains a simple Python script that can be used to convert automatically generated Classbench rules into a set of rules that can be loaded in either `iptables` or `bpf-iptables`.
 
+[1] ClassBench: A Packet Classification Benchmark - https://www.arl.wustl.edu/classbench/
 ## Usage
 
 The list of parameters can be found below
