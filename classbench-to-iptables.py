@@ -2,7 +2,7 @@ import re
 import argparse
 import socket
 
-protoTable = {num:name[8:] for name,num in vars(socket).items() if name.startswith("IPPROTO")}
+protoTable = {num: name[8:] for name, num in vars(socket).items() if name.startswith("IPPROTO")}
 
 srcIP = r'(?P<SrcIp>(?:(?:\d){1,3}\.){3}(?:\d){1,3})\/(?P<SrcNm>(?:\d){1,3})'
 dstIP = r'(?P<DstIp>(?:(?:\d){1,3}\.){3}(?:\d){1,3})\/(?P<DstNm>(?:\d){1,3})'
@@ -152,13 +152,13 @@ def parse_and_write_file(input_file, output_file):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program used to convert Classbench rules into pcn/iptables rules')
+    parser.add_argument("-i", "--input-file", required=True, type=str, help="The Classbench input file")
+    parser.add_argument("-o", "--output-file", required=True, type=str,
+                        help="The output file where to same the ruleset")
     parser.add_argument("-n", "--name", choices=["iptables", "pcn-iptables"], default="pcn-iptables", type=str,
                         help="The name of the program to use")
     parser.add_argument("-c", "--chain", choices=["INPUT", "FORWARD", "OUTPUT"], default="FORWARD", type=str,
                         help="The chain where to append the rules")
-    parser.add_argument("-i", "--input-file", required=True, type=str, help="The Classbench input file")
-    parser.add_argument("-o", "--output-file", required=True, type=str,
-                        help="The output file where to same the ruleset")
     parser.add_argument("-e", "--expand-range", type=bool, default=False,
                         help="Create a separate rule for each port range value")
     parser.add_argument("-j", "--default-action", choices=["ACCEPT", "DROP"], type=str, default="ACCEPT",
