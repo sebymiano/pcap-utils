@@ -1,6 +1,7 @@
 import re
 import argparse
 import socket
+from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
 
 protoTable = {num: name[8:] for name, num in vars(socket).items() if name.startswith("IPPROTO")}
 
@@ -13,6 +14,11 @@ tcpFlags = r'(?:0x)(?P<TCPFlags>[0-9]{4})\/(?:0x)(?P<TCPFlagsMask>[0-9]{4})'
 
 finalString = fr'@{srcIP}(?:\s+){dstIP}(?:\s+){srcPort}(?:\s+){dstPort}(?:\s+){IPproto}(?:\s+){tcpFlags}'
 finalRegex = re.compile(finalString)
+
+widgets = [Percentage(),
+           ' ', Bar(),
+           ' ', ETA(),
+           ' ', AdaptiveETA()]
 
 
 def parse_line(line):
@@ -98,9 +104,13 @@ def parse_and_write_file(input_file, output_file):
     input_lines = 0
     output_lines = 0
     with open(input_file_path, 'r') as input_file, open(output_file_path, 'w') as output_file:
+        maxlines = sum(1 for _ in input_file)
+        input_file.seek(0)
+        pbar = ProgressBar(widgets=widgets, maxval=maxlines).start()
         line = input_file.readline()
         while line:
             input_lines += 1
+            pbar.update(input_lines)
             string_list = list()
             pcn_iptables_string = fr'{iptablesBinary} -A {defaultChain}'
             string_list.append(pcn_iptables_string)

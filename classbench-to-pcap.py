@@ -3,6 +3,7 @@ import re
 import socket
 import ipaddress
 import struct
+from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
 
 from randmac import RandMac
 from scapy.layers.inet import IP, TCP, UDP
@@ -10,6 +11,11 @@ from scapy.layers.l2 import Ether
 from scapy.packet import Raw
 from scapy.utils import wrpcap
 from scapy.volatile import RandString
+
+widgets = [Percentage(),
+           ' ', Bar(),
+           ' ', ETA(),
+           ' ', AdaptiveETA()]
 
 
 def parse_line(line):
@@ -36,10 +42,14 @@ def build_packet_ipv4(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port, prot
 
 def parse_and_write_file(input_file, output_file):
     input_lines = 0
-    with open(input_file_path, 'r') as input_file, open(output_file_path, 'w') as output_file:
+    with open(input_file_path, 'r') as input_file:
+        maxlines = sum(1 for _ in input_file)
+        input_file.seek(0)
+        pbar = ProgressBar(widgets=widgets, maxval=maxlines).start()
         line = input_file.readline()
         while line:
             input_lines += 1
+            pbar.update(input_lines)
             res = parse_line(line)
             assert res is not None, "Wrong format of the Classbench trace"
 
@@ -66,7 +76,7 @@ def parse_and_write_file(input_file, output_file):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program used to generate pcap trace from Classbench generated traces')
     parser.add_argument("-i", "--input-file", required=True, type=str, help="The Classbench trace input file")
-    parser.add_argument("-o", "--output-file", required=True, type=str, help="The output pcap file ")
+    parser.add_argument("-o", "--output-file", type=str, help="The output pcap file ")
     parser.add_argument("-s", "--src-mac", type=str, help="Source MAC address to use in the generated pcap")
     parser.add_argument("-d", "--dst-mac", type=str, help="Destination MAC address to use in the generated pcap")
     parser.add_argument("-l", "--pkt-size", type=int, default=0, help="Size of the generated packet")
@@ -74,7 +84,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     input_file_path = args.input_file
-    output_file_path = args.output_file
+    if args.output_file is None:
+        output_file_path = input_file_path + ".pcap"
+    else:
+        output_file_path = args.output_file
 
     if args.src_mac is None:
         srcMAC = str(RandMac("00:00:00:00:00:00", True).mac)
