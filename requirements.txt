@@ -1,4 +1,4 @@
-scapy
-randmac
-progressbar
-ipaddress==1.0.23
+randmac==0.0.2
+scapy_python3==0.26
+progressbar2==3.47.0
+scapy==2.4.3
