@@ -6,7 +6,7 @@ import struct
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
 
 from randmac import RandMac
-from scapy.layers.inet import IP, TCP, UDP
+from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether
 from scapy.packet import Raw
 from scapy.utils import wrpcap
@@ -28,8 +28,12 @@ def build_packet_ipv4(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port, prot
     ip = IP(src=src_ip, dst=dst_ip)
     if proto == UDP:
         ipproto = UDP(sport=src_port, dport=dst_port)
-    else:
+    elif proto == TCP:
         ipproto = TCP(sport=src_port, dport=dst_port)
+    elif proto == ICMP:
+        ipproto = ICMP()
+    else:
+        assert False, "Input file containing an unknown protocol number"
 
     pkt = eth / ip / ipproto
     if packetSize != 0 and len(pkt) < packetSize:

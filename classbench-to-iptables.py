@@ -3,6 +3,7 @@ import argparse
 import socket
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
 
+
 protoTable = {num: name[8:] for name, num in vars(socket).items() if name.startswith("IPPROTO")}
 
 srcIP = r'(?P<SrcIp>(?:(?:\d){1,3}\.){3}(?:\d){1,3})\/(?P<SrcNm>(?:\d){1,3})'
@@ -10,7 +11,7 @@ dstIP = r'(?P<DstIp>(?:(?:\d){1,3}\.){3}(?:\d){1,3})\/(?P<DstNm>(?:\d){1,3})'
 srcPort = r'(?P<SrcPortStart>\d{1,5})(?:\s+):(?:\s+)(?P<SrcPortEnd>\d{1,5})'
 dstPort = r'(?P<DstPortStart>\d{1,5})(?:\s+):(?:\s+)(?P<DstPortEnd>\d{1,5})'
 IPproto = r'(?:0x)(?P<Proto>[0-9a-fA-F]{1,2})\/(?:0x)(?P<ProtoMask>[0-9a-fA-F]{1,2})'
-tcpFlags = r'(?:0x)(?P<TCPFlags>[0-9]{4})\/(?:0x)(?P<TCPFlagsMask>[0-9]{4})'
+tcpFlags = r'(?:0x)(?P<TCPFlags>[0-9a-fA-F]{4})\/(?:0x)(?P<TCPFlagsMask>[0-9a-fA-F]{4})'
 
 finalString = fr'@{srcIP}(?:\s+){dstIP}(?:\s+){srcPort}(?:\s+){dstPort}(?:\s+){IPproto}(?:\s+){tcpFlags}'
 finalRegex = re.compile(finalString)
@@ -49,7 +50,7 @@ def get_src_port_string(start, end, start_string):
     if start_port == 0 and end_port == 65535:
         return port_list
     if start_port == end_port:
-        port_list.append(start_string + fr" --sport {start_port}")
+        port_list.append(start_string + fr" --sport {start_port}:{start_port}")
         return port_list
 
     if not expandRange:
@@ -57,7 +58,7 @@ def get_src_port_string(start, end, start_string):
         return port_list
     else:
         while start_port <= end_port:
-            port_list.append(start_string + fr" --sport {start_port}")
+            port_list.append(start_string + fr" --sport {start_port}:{start_port}")
             start_port += 1
 
     return port_list
@@ -72,7 +73,7 @@ def get_dst_port_string(start, end, start_string):
     if start_port == 0 and end_port == 65535:
         return port_list
     if start_port == end_port:
-        port_list.append(start_string + fr" --dport {start_port}")
+        port_list.append(start_string + fr" --dport {start_port}:{start_port}")
         return port_list
 
     if not expandRange:
@@ -80,7 +81,7 @@ def get_dst_port_string(start, end, start_string):
         return port_list
     else:
         while start_port <= end_port:
-            port_list.append(start_string + fr" --dport {start_port}")
+            port_list.append(start_string + fr" --dport {start_port}:{start_port}")
             start_port += 1
 
     return port_list
@@ -90,14 +91,23 @@ def get_proto_string(proto, proto_mask, start_str):
     proto = int(proto, 16)
     proto_mask = int(proto_mask, 16)
     proto_list = list()
+    skip_port = False
 
-    assert proto in protoTable, "Unrecognized protocol"
+    if proto == 0:
+        return True, proto_list
+
+    if proto not in protoTable:
+        print(f'Unrecognized protocol {proto}')
+        return True, proto_list
 
     if proto_mask == int("FF", 16):
-        proto_list.append(start_str + fr" -p {protoTable[proto]}")
-        return proto_list
+        if proto == 1:
+            skip_port = True
 
-    return proto_list
+        proto_list.append(start_str + fr" -p {protoTable[proto]}")
+        return skip_port, proto_list
+
+    return skip_port, proto_list
 
 
 def parse_and_write_file(input_file, output_file):
@@ -116,7 +126,7 @@ def parse_and_write_file(input_file, output_file):
             string_list.append(pcn_iptables_string)
             # at each line check for a match with a regex
             match = parse_line(line)
-            assert match, "The file is not in the expected format!"
+            assert match, f"The file is not in the expected format in line {input_lines}!"
 
             src_ip = match.group('SrcIp')
             src_netmask = match.group('SrcNm')
@@ -134,20 +144,22 @@ def parse_and_write_file(input_file, output_file):
             string_list = [s + get_src_ip_string(src_ip, src_netmask) for s in string_list]
             string_list = [s + get_dst_ip_string(dst_ip, dst_netmask) for s in string_list]
 
+            skip_port = False
             for start_str in string_list:
-                src_port_res = get_src_port_string(src_port_start, src_port_end, start_str)
-                if len(src_port_res) > 0:
-                    string_list = src_port_res
-
-            for start_str in string_list:
-                dst_port_res = get_dst_port_string(dst_port_start, dst_port_end, start_str)
-                if len(dst_port_res) > 0:
-                    string_list = dst_port_res
-
-            for start_str in string_list:
-                proto_res = get_proto_string(proto, proto_mask, start_str)
-                if len(dst_port_res) > 0:
+                skip_port, proto_res = get_proto_string(proto, proto_mask, start_str)
+                if len(proto_res) > 0:
                     string_list = proto_res
+
+            if not skip_port:
+                for start_str in string_list:
+                    src_port_res = get_src_port_string(src_port_start, src_port_end, start_str)
+                    if len(src_port_res) > 0:
+                        string_list = src_port_res
+
+                for start_str in string_list:
+                    dst_port_res = get_dst_port_string(dst_port_start, dst_port_end, start_str)
+                    if len(dst_port_res) > 0:
+                        string_list = dst_port_res
 
             string_list = [s + fr" -j {defaultAction}" for s in string_list]
 
