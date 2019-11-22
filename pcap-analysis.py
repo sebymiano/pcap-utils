@@ -1,4 +1,5 @@
 import argparse
+import collections
 import csv
 import os
 import pickle
@@ -114,11 +115,17 @@ def save_flow_dict():
     flow_output_file_path = os.path.join(output_file_dir, f"flows.csv")
     most_used_flow = None
     count = 0
+
+    if sort_dict:
+        new_dict = collections.OrderedDict(sorted(Flows.items(), key=lambda item: item[1], reverse=True))
+    else:
+        new_dict = Flows
+
     with open(flow_output_file_path, 'w') as csv_output_file:
         fieldnames = ['Source IP', 'Dst IP', 'Proto', 'Src Port', 'Dst Port', 'Count', 'Percentage']
         writer = csv.DictWriter(csv_output_file, fieldnames=fieldnames)
         writer.writeheader()
-        for k, v in Flows.items():
+        for k, v in new_dict.items():
             if v > count:
                 most_used_flow = k
                 count = v
@@ -136,7 +143,7 @@ def save_flow_dict():
     if not detailed:
         return
 
-    print(f"There are a total of {len(Flows.items())} distinct flows in the pcap trace")
+    print(f"There are a total of {len(new_dict.items())} distinct flows in the pcap trace")
     print(f"The most used flow is the following, with a total of {count} packets over {totLineOriginalFile}")
     flow = most_used_flow
     if len(flow) == 5:
@@ -151,11 +158,17 @@ def save_dict(dictionary, dict_type):
     dictionary_output_file_path = os.path.join(output_file_dir, f"{dict_type.lower().replace(' ', '_')}.csv")
     most_used = None
     count = 0
+
+    if sort_dict:
+        new_dict = collections.OrderedDict(sorted(dictionary.items(), key=lambda item: item[1], reverse=True))
+    else:
+        new_dict = dictionary
+
     with open(dictionary_output_file_path, 'w') as csv_output_file:
         fieldnames = [dict_type, 'Count', 'Percentage']
         writer = csv.DictWriter(csv_output_file, fieldnames=fieldnames)
         writer.writeheader()
-        for k, v in dictionary.items():
+        for k, v in new_dict.items():
             if v > count:
                 most_used = k
                 count = v
@@ -166,7 +179,7 @@ def save_dict(dictionary, dict_type):
     if not detailed:
         return
 
-    print(f"There are a total of {len(dictionary.items())} distinct {dict_type} in the pcap trace")
+    print(f"There are a total of {len(new_dict.items())} distinct {dict_type} in the pcap trace")
     print(f"The most used {dict_type} is the following, with a total of {count} packets over {totLineOriginalFile}")
 
     print(f"{dict_type}: {str(most_used)}")
@@ -192,12 +205,15 @@ if __name__ == '__main__':
                         help="The output directory")
     parser.add_argument("-d", "--detailed", dest='detailed', action='store_true', default=False,
                         help="Print additional statistics on command line")
+    parser.add_argument("-s", "--sorted", dest='sort_dict', action='store_true', default=False,
+                        help="Sort results in decreasing order")
 
     args = parser.parse_args()
 
     input_file_path = args.input_file
     output_file_dir = args.output_dir
     detailed = args.detailed
+    sort_dict = args.sort_dict
 
     if not os.path.isdir(output_file_dir):
         print("Error! The output file should be a directory")
