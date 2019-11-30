@@ -26,14 +26,15 @@ def parse_line(line):
 def build_packet_ipv4(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port, proto):
     eth = Ether(src=src_mac, dst=dst_mac, type=0x800)
     ip = IP(src=src_ip, dst=dst_ip)
-    if proto == UDP:
+    if proto == socket.IPPROTO_UDP:
         ipproto = UDP(sport=src_port, dport=dst_port)
-    elif proto == TCP:
+    elif proto == socket.IPPROTO_TCP:
         ipproto = TCP(sport=src_port, dport=dst_port)
-    elif proto == ICMP:
+    elif proto == socket.IPPROTO_ICMP:
         ipproto = ICMP()
     else:
-        assert False, "Input file containing an unknown protocol number"
+        ipproto = UDP(sport=src_port, dport=dst_port)
+        #assert False, f"Input file containing an unknown protocol number: {proto}"
 
     pkt = eth / ip / ipproto
     if packetSize != 0 and len(pkt) < packetSize:
@@ -63,14 +64,9 @@ def parse_and_write_file(input_file, output_file):
             dst_port = int(res[3])
             proto = int(res[4])
 
-            if proto == socket.IPPROTO_TCP:
-                proto = TCP
-            else:
-                proto = UDP
-
             pkt = build_packet_ipv4(srcMAC, dstMAC, src_ip, dst_ip, src_port, dst_port, proto)
 
-            wrpcap(output_file_path, [pkt], append=True)
+            wrpcap(output_file_path, [pkt], append=True, sync=True)
 
             line = input_file.readline()
 
