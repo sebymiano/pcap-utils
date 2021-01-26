@@ -155,7 +155,7 @@ def parse_and_write_file(input_file, output_file):
             string_list = list()
 
             if iptablesBinary == "polycubectl":
-                pcn_iptables_string = fr'{iptablesBinary} pcn-iptables chain {defaultChain} append'
+                pcn_iptables_string = fr'sudo {iptablesBinary} pcn-iptables chain {defaultChain} append'
                 action_cmd = fr' action='
             else:
                 pcn_iptables_string = fr'{iptablesBinary} -A {defaultChain}'
