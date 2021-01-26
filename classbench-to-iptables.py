@@ -28,17 +28,33 @@ def parse_line(line):
 
 
 def get_src_ip_string(src_ip, src_netmask):
-    if int(src_netmask) == 32:
-        return f" -s {src_ip}"
+    if src_ip == "0.0.0.0":
+        return ""
+
+    if iptablesBinary == "polycubectl":
+        src_cmd = " src="
     else:
-        return f" -s {src_ip}/{src_netmask}"
+        src_cmd = " -s "
+
+    if int(src_netmask) == 32:
+        return f"{src_cmd}{src_ip}"
+    else:
+        return f"{src_cmd}{src_ip}/{src_netmask}"
 
 
 def get_dst_ip_string(dst_ip, dst_netmask):
-    if int(dst_netmask) == 32:
-        return f" -d {dst_ip}"
+    if dst_ip == "0.0.0.0":
+        return ""
+
+    if iptablesBinary == "polycubectl":
+        dst_cmd = " dst="
     else:
-        return f" -d {dst_ip}/{dst_netmask}"
+        dst_cmd = " -d "    
+
+    if int(dst_netmask) == 32:
+        return f"{dst_cmd}{dst_ip}"
+    else:
+        return f"{dst_cmd}{dst_ip}/{dst_netmask}"
 
 
 def get_src_port_string(start, end, start_string):
@@ -47,18 +63,23 @@ def get_src_port_string(start, end, start_string):
     port_list = list()
     assert (start_port <= 65535 and end_port <= 65535), "Source ports are not correctly formatted"
 
+    if iptablesBinary == "polycubectl":
+        src_port_cmd = " sport="
+    else:
+        src_port_cmd = " --sport "   
+
     if start_port == 0 and end_port == 65535:
         return port_list
     if start_port == end_port:
-        port_list.append(start_string + fr" --sport {start_port}:{start_port}")
+        port_list.append(start_string + fr"{src_port_cmd}{start_port}:{start_port}")
         return port_list
 
     if not expandRange:
-        port_list.append(start_string + fr" --sport {start_port}:{end_port}")
+        port_list.append(start_string + fr"{src_port_cmd}{start_port}:{end_port}")
         return port_list
     else:
         while start_port <= end_port:
-            port_list.append(start_string + fr" --sport {start_port}:{start_port}")
+            port_list.append(start_string + fr"{src_port_cmd}{start_port}:{start_port}")
             start_port += 1
 
     return port_list
@@ -70,18 +91,23 @@ def get_dst_port_string(start, end, start_string):
     port_list = list()
     assert (start_port <= 65535 and end_port <= 65535), "Destination ports are not correctly formatted"
 
+    if iptablesBinary == "polycubectl":
+        dst_port_cmd = " dport="
+    else:
+        dst_port_cmd = " --dport "   
+
     if start_port == 0 and end_port == 65535:
         return port_list
     if start_port == end_port:
-        port_list.append(start_string + fr" --dport {start_port}:{start_port}")
+        port_list.append(start_string + fr"{dst_port_cmd}{start_port}:{start_port}")
         return port_list
 
     if not expandRange:
-        port_list.append(start_string + fr" --dport {start_port}:{end_port}")
+        port_list.append(start_string + fr"{dst_port_cmd}{start_port}:{end_port}")
         return port_list
     else:
         while start_port <= end_port:
-            port_list.append(start_string + fr" --dport {start_port}:{start_port}")
+            port_list.append(start_string + fr"{dst_port_cmd}{start_port}:{start_port}")
             start_port += 1
 
     return port_list
@@ -100,11 +126,16 @@ def get_proto_string(proto, proto_mask, start_str):
         print(f'Unrecognized protocol {proto}')
         return True, proto_list
 
+    if iptablesBinary == "polycubectl":
+        proto_cmd = " l4proto="
+    else:
+        proto_cmd = " -p "  
+
     if proto_mask == int("FF", 16):
         if proto == 1:
             skip_port = True
 
-        proto_list.append(start_str + fr" -p {protoTable[proto]}")
+        proto_list.append(start_str + fr"{proto_cmd}{protoTable[proto]}")
         return skip_port, proto_list
 
     return skip_port, proto_list
@@ -122,7 +153,14 @@ def parse_and_write_file(input_file, output_file):
             input_lines += 1
             pbar.update(input_lines)
             string_list = list()
-            pcn_iptables_string = fr'{iptablesBinary} -A {defaultChain}'
+
+            if iptablesBinary == "polycubectl":
+                pcn_iptables_string = fr'{iptablesBinary} pcn-iptables chain {defaultChain} append'
+                action_cmd = fr' action='
+            else:
+                pcn_iptables_string = fr'{iptablesBinary} -A {defaultChain}'
+                action_cmd = fr' -j '
+
             string_list.append(pcn_iptables_string)
             # at each line check for a match with a regex
             match = parse_line(line)
@@ -161,7 +199,7 @@ def parse_and_write_file(input_file, output_file):
                     if len(dst_port_res) > 0:
                         string_list = dst_port_res
 
-            string_list = [s + fr" -j {defaultAction}" for s in string_list]
+            string_list = [s + fr"{action_cmd}{defaultAction}" for s in string_list]
 
             for item in string_list:
                 output_file.write("%s\n" % item)
@@ -177,7 +215,7 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--input-file", required=True, type=str, help="The Classbench input file")
     parser.add_argument("-o", "--output-file", required=True, type=str,
                         help="The output file where to same the ruleset")
-    parser.add_argument("-n", "--name", choices=["iptables", "pcn-iptables"], default="pcn-iptables", type=str,
+    parser.add_argument("-n", "--name", choices=["iptables", "pcn-iptables", "polycubectl"], default="pcn-iptables", type=str,
                         help="The name of the program to use")
     parser.add_argument("-c", "--chain", choices=["INPUT", "FORWARD", "OUTPUT"], default="FORWARD", type=str,
                         help="The chain where to append the rules")
