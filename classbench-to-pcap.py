@@ -3,20 +3,29 @@ import re
 import socket
 import ipaddress
 import struct
+import os
+import threading
+import multiprocessing
+import math
+from atpbar import atpbar
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
+from concurrent.futures import ThreadPoolExecutor
 
 from randmac import RandMac
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether
 from scapy.packet import Raw
 from scapy.utils import wrpcap
-from scapy.volatile import RandString
+from scapy.volatile import RandIP, RandString
+from scapy.all import *
 
 widgets = [Percentage(),
            ' ', Bar(),
            ' ', ETA(),
            ' ', AdaptiveETA()]
 
+
+pbar_update_value = 0
 
 def parse_line(line):
     match = re.split(r'\t+', line.rstrip('\t'))
@@ -44,33 +53,87 @@ def build_packet_ipv4(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port, prot
 
     return eth / ip / ipproto
 
+def get_or_random_ip(ip):
+    if int(ip) == 0:
+        return str(RandIP())
 
-def parse_and_write_file(input_file, output_file):
-    input_lines = 0
-    with open(input_file_path, 'r') as input_file:
-        maxlines = sum(1 for _ in input_file)
-        input_file.seek(0)
-        pbar = ProgressBar(widgets=widgets, maxval=maxlines).start()
-        line = input_file.readline()
-        while line:
-            input_lines += 1
-            pbar.update(input_lines)
+    return str(ipaddress.IPv4Address(int(ip)))
+
+def get_or_random_port(port):
+    if int(port) == 0:
+        return int(RandShort())
+
+    return int(port)
+
+def get_or_random_proto(proto):
+    if int(proto) == 0:
+        return random.choice([socket.IPPROTO_UDP, socket.IPPROTO_TCP])
+
+    return int(proto)
+
+def parse_line_and_build_pkt(lines_list, lock, cv, i, order_list, pktdump):
+    global pbar_update_value
+    pkt_list = list()
+    tot_pbar = len(lines_list) + 1
+    # with cv:
+    #     cv.notify_all()
+    for j in atpbar(range(tot_pbar), name=f"Task {i}"):
+        if j < len(lines_list):
+            line = lines_list[j]
             res = parse_line(line)
             assert res is not None, "Wrong format of the Classbench trace"
 
-            src_ip = str(ipaddress.IPv4Address(int(res[0])))
-            dst_ip = str(ipaddress.IPv4Address(int(res[1])))
-            src_port = int(res[2])
-            dst_port = int(res[3])
-            proto = int(res[4])
+            src_ip = get_or_random_ip(res[0])
+            dst_ip = get_or_random_ip(res[1])
+            src_port = get_or_random_port(res[2])
+            dst_port = get_or_random_port(res[3])
+            proto = get_or_random_proto(res[4])
 
             pkt = build_packet_ipv4(srcMAC, dstMAC, src_ip, dst_ip, src_port, dst_port, proto)
+            pkt_list.append(pkt) 
 
-            wrpcap(output_file_path, [pkt], append=True, sync=True)
+        if j == len(lines_list):
+            with cv:
+                while order_list.count(i-1) == 0:
+                    cv.wait(1.0)    # Wait one second
+            with lock:
+            #    print(f"Dump packets {i}")
+                pktdump.write(pkt_list)
+                order_list.append(i)
+                cv.notify_all()
 
-            line = input_file.readline()
 
-    return input_lines
+def parse_and_write_file(input_file):
+    m = multiprocessing.Manager()
+    file_lock = m.Lock()
+    cv = threading.Condition()
+    with open(input_file_path, 'r') as input_file:
+        maxlines = sum(1 for _ in input_file)
+        input_file.seek(0)
+        line = input_file.readline()
+        
+        lines_list = list()
+        task_order_list = list()
+        task_idx = 0
+        task_order_list.append(task_idx)
+
+        remaining = maxlines
+
+        chunk_size = 10000
+        with PcapWriter(output_file_path, append=True, sync=True) as pktdump:
+            with ThreadPoolExecutor(max_workers=min(os.cpu_count(), 10)) as executor:
+                while line:
+                    lines_list.append(line)
+
+                    if len(lines_list) == min(remaining, chunk_size):
+                        task_idx += 1
+                        executor.submit(parse_line_and_build_pkt, copy.deepcopy(lines_list), file_lock, cv, copy.deepcopy(task_idx), task_order_list, pktdump)
+                        lines_list.clear()
+                        remaining -= chunk_size
+                        
+                    line = input_file.readline()
+
+    return maxlines
 
 
 if __name__ == '__main__':
@@ -101,7 +164,12 @@ if __name__ == '__main__':
 
     packetSize = args.pkt_size
 
-    tot_input_lines = parse_and_write_file(input_file_path, output_file_path)
+    try:
+        os.remove(output_file_path)
+    except OSError:
+        pass
+
+    tot_input_lines = parse_and_write_file(input_file_path)
 
     print(f"Read and parsed a total of {tot_input_lines} from file")
     print(f"Output file created: {output_file_path}")
