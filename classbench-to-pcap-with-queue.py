@@ -1,4 +1,5 @@
 import argparse
+from multiprocessing.queues import JoinableQueue
 import re
 import socket
 import ipaddress
@@ -7,9 +8,11 @@ import os
 import threading
 import multiprocessing
 import math
+import queue
 from atpbar import atpbar
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 from randmac import RandMac
 from scapy.layers.inet import IP, TCP, UDP, ICMP
@@ -71,13 +74,14 @@ def get_or_random_proto(proto):
 
     return int(proto)
 
-def parse_line_and_build_pkt(lines_list, lock, cv, i, order_list, pktdump):
+def parse_line_and_build_pkt(lines_list, lock, cv, i, order_list, result_queue):
     global pbar_update_value
     pkt_list = list()
     tot_pbar = len(lines_list) + 1
     # with cv:
     #     cv.notify_all()
-    for j in atpbar(range(tot_pbar), name=f"Task {i}"):
+    # for j in atpbar(range(tot_pbar), name=f"Task {i}"):
+    for j in range(tot_pbar):
         if j < len(lines_list):
             line = lines_list[j]
             res = parse_line(line)
@@ -94,44 +98,79 @@ def parse_line_and_build_pkt(lines_list, lock, cv, i, order_list, pktdump):
 
         if j == len(lines_list):
             with cv:
-                while order_list.count(i-1) == 0:
+                previous_idx = i - 1
+                while previous_idx not in order_list:
                     cv.wait(1.0)    # Wait one second
-            with lock:
-            #    print(f"Dump packets {i}")
-                pktdump.write(pkt_list)
+                
+                result_queue.put(pkt_list)   
                 order_list.append(i)
-                cv.notify_all()
+                cv.notify_all()  
+
+
+def pcap_writer(output_file, result_queue, producers_completed):
+    with PcapWriter(output_file, append=True, sync=True) as pktdump:
+        aggregated_list = list()
+        while not producers_completed or not result_queue.empty():
+            try:
+                result = result_queue.get(block=True, timeout=1.0)
+                print("Got value from queue")
+            except queue.Empty:
+                continue
+
+            aggregated_list += result
+            if len(aggregated_list) > 5000:
+                print("Dump file")
+                pktdump.write(aggregated_list)
+                aggregated_list.clear()
+
+            result_queue.task_done()
+
+        if len(aggregated_list) > 0:
+            print("Dump file")
+            pktdump.write(aggregated_list)
+        
+    print("Consumer terminated")
 
 
 def parse_and_write_file(input_file):
     m = multiprocessing.Manager()
     file_lock = m.Lock()
-    cv = threading.Condition()
+    cv = multiprocessing.Condition()
     with open(input_file_path, 'r') as input_file:
         maxlines = sum(1 for _ in input_file)
         input_file.seek(0)
         line = input_file.readline()
         
         lines_list = list()
-        task_order_list = list()
+        task_order_list = m.list()
         task_idx = 0
         task_order_list.append(task_idx)
 
         remaining = maxlines
 
-        chunk_size = 10000
-        with PcapWriter(output_file_path, append=True, sync=True) as pktdump:
-            with ThreadPoolExecutor(max_workers=min(os.cpu_count(), 4)) as executor:
-                while line:
-                    lines_list.append(line)
+        chunk_size = 1000
 
-                    if len(lines_list) == min(remaining, chunk_size):
-                        task_idx += 1
-                        executor.submit(parse_line_and_build_pkt, copy.deepcopy(lines_list), file_lock, cv, copy.deepcopy(task_idx), task_order_list, pktdump)
-                        lines_list.clear()
-                        remaining -= chunk_size
-                        
-                    line = input_file.readline()
+        producers_completed = False
+        result_queue = multiprocessing.JoinableQueue(maxsize=500)
+
+        consumer = threading.Thread(target=pcap_writer, args=(output_file_path, result_queue, producers_completed))
+
+        consumer.start()
+        
+        with ThreadPoolExecutor(max_workers=min(os.cpu_count(), 4)) as executor:
+            while line:
+                lines_list.append(line)
+
+                if len(lines_list) == min(remaining, chunk_size):
+                    task_idx += 1
+                    executor.submit(parse_line_and_build_pkt, copy.deepcopy(lines_list), file_lock, cv, copy.deepcopy(task_idx), task_order_list, result_queue)
+                    lines_list.clear()
+                    remaining -= chunk_size
+                    
+                line = input_file.readline()
+
+        producers_completed = True
+        consumer.join()
 
     return maxlines
 
