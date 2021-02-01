@@ -74,10 +74,11 @@ def get_or_random_proto(proto):
 def parse_line_and_build_pkt(lines_list, lock, cv, i, order_list, pktdump):
     global pbar_update_value
     pkt_list = list()
-    tot_pbar = len(lines_list) + 1
+    tot_pbar = len(lines_list)
     # with cv:
     #     cv.notify_all()
     for j in atpbar(range(tot_pbar), name=f"Task {i}"):
+    #for j in range(tot_pbar):
         if j < len(lines_list):
             line = lines_list[j]
             res = parse_line(line)
@@ -92,13 +93,13 @@ def parse_line_and_build_pkt(lines_list, lock, cv, i, order_list, pktdump):
             pkt = build_packet_ipv4(srcMAC, dstMAC, src_ip, dst_ip, src_port, dst_port, proto)
             pkt_list.append(pkt) 
 
-        if j == len(lines_list):
+        if j == len(lines_list) - 1:
             with cv:
                 while order_list.count(i-1) == 0:
-                    cv.wait(1.0)    # Wait one second
+                    cv.wait()    # Wait one second
             with lock:
-            #    print(f"Dump packets {i}")
                 pktdump.write(pkt_list)
+            with cv:
                 order_list.append(i)
                 cv.notify_all()
 
