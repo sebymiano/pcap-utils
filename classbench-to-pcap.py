@@ -39,7 +39,7 @@ def build_packet_ipv4(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port, prot
         ipproto = UDP(sport=src_port, dport=dst_port)
     elif proto == socket.IPPROTO_TCP:
         ipproto = TCP(sport=src_port, dport=dst_port)
-    elif proto == socket.IPPROTO_ICMP:
+    elif proto == socket.IPPROTO_ICMP and not noICMP:
         ipproto = ICMP()
     else:
         ipproto = UDP(sport=src_port, dport=dst_port)
@@ -144,6 +144,7 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--src-mac", type=str, help="Source MAC address to use in the generated pcap")
     parser.add_argument("-d", "--dst-mac", type=str, help="Destination MAC address to use in the generated pcap")
     parser.add_argument("-l", "--pkt-size", type=int, default=0, help="Size of the generated packet")
+    parser.add_argument("--no-icmp", type=bool, default=False, help="Generated packets are only TCP and/or UDP")
 
     args = parser.parse_args()
 
@@ -164,6 +165,7 @@ if __name__ == '__main__':
         dstMAC = args.dst_mac
 
     packetSize = args.pkt_size
+    noICMP = args.no_icmp
 
     try:
         os.remove(output_file_path)
