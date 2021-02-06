@@ -53,15 +53,23 @@ def build_packet_ipv4(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port, prot
 
     return eth / ip / ipproto
 
-def get_or_random_ip(ip):
+def get_or_random_ip(ip, src=True):
     if int(ip) == 0:
-        return str(RandIP())
+        # return str(RandIP())
+        if src:
+            return randomSrcIP
+        else:
+            return randomDstIP
 
     return str(ipaddress.IPv4Address(int(ip)))
 
-def get_or_random_port(port):
+def get_or_random_port(port, src=True):
     if int(port) == 0:
-        return int(RandShort())
+        # return int(RandShort())
+        if src:
+            return randomSrcPort
+        else:
+            return randomDstPort
 
     return int(port)
 
@@ -85,9 +93,9 @@ def parse_line_and_build_pkt(lines_list, lock, cv, i, order_list, pktdump):
             assert res is not None, "Wrong format of the Classbench trace"
 
             src_ip = get_or_random_ip(res[0])
-            dst_ip = get_or_random_ip(res[1])
+            dst_ip = get_or_random_ip(res[1], src=False)
             src_port = get_or_random_port(res[2])
-            dst_port = get_or_random_port(res[3])
+            dst_port = get_or_random_port(res[3], src=False)
             proto = get_or_random_proto(res[4])
 
             pkt = build_packet_ipv4(srcMAC, dstMAC, src_ip, dst_ip, src_port, dst_port, proto)
@@ -171,6 +179,11 @@ if __name__ == '__main__':
         os.remove(output_file_path)
     except OSError:
         pass
+
+    randomSrcIP = str(RandIP())
+    randomDstIP = str(RandIP())
+    randomSrcPort = int(RandShort())
+    randomDstPort = int(RandShort())
 
     tot_input_lines = parse_and_write_file(input_file_path)
 
