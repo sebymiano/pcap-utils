@@ -77,7 +77,7 @@ header='ig_intr_md.ingress_mac_tstamp,hdr.ipv4.src_addr,hdr.ipv4.dst_addr,hdr.ip
 harr=header.split(',')
 header_loc_map={harr[i]:i for i in range(len(harr))}
 
-def parse_file_and_append(file_name, lock, cv, task_idx, order_list, pktdump):
+def parse_file_and_append(file_name, lock, cv, task_idx, order_list, pktdump, add_payload=False):
     global total_tasks
 
     local_pkt_list = list()
@@ -97,7 +97,7 @@ def parse_file_and_append(file_name, lock, cv, task_idx, order_list, pktdump):
                 pkt[Ether].src = srcMAC
                 pkt[Ether].dst = dstMAC
 
-                if wirelen != 0 and len(pkt) < wirelen:
+                if add_payload and wirelen != 0 and len(pkt) < wirelen:
                     remaining_size = wirelen - len(pkt)
                     payload = Raw(RandString(size=remaining_size))
                     pkt = pkt / payload
@@ -115,7 +115,7 @@ def parse_file_and_append(file_name, lock, cv, task_idx, order_list, pktdump):
                     cv.notify_all()
 
 
-def parse_and_write_pcap(input_file, output_file, count, debug):
+def parse_and_write_pcap(input_file, output_file, count, debug, add_payload):
     global total_tasks
     m = multiprocessing.Manager()
     file_lock = m.Lock()
@@ -148,7 +148,7 @@ def parse_and_write_pcap(input_file, output_file, count, debug):
         with ThreadPoolExecutor(max_workers=min(os.cpu_count(), 8)) as executor:
             for file in file_list:
                 task_idx += 1
-                executor.submit(parse_file_and_append, copy.deepcopy(file), file_lock, cv, copy.deepcopy(task_idx), task_order_list, pktdump)
+                executor.submit(parse_file_and_append, copy.deepcopy(file), file_lock, cv, copy.deepcopy(task_idx), task_order_list, pktdump, add_payload)
 
     tmp_dir.cleanup()
 
@@ -163,6 +163,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--dst-mac", type=str, help="Destination MAC address to use in the generated pcap")
     parser.add_argument("-c", "--count", metavar="count", type=int, default=-1, help="Number of packets to read before stopping. Default is -1 (no limit).")
     parser.add_argument("-v","--verbose", action="store_true", help="Show additional debug info.")
+    parser.add_argument("-p","--payload", action="store_true", help="Add payload to the trace.")
 
     args = parser.parse_args()
 
@@ -184,6 +185,6 @@ if __name__ == '__main__':
     except OSError:
         pass
 
-    parse_and_write_pcap(input_file_path, output_file_path, args.count, args.verbose)
+    parse_and_write_pcap(input_file_path, output_file_path, args.count, args.verbose, args.payload)
 
     print(f"Output file created: {output_file_path}")
