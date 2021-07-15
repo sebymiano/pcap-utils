@@ -26,6 +26,8 @@ widgets = [Percentage(),
            ' ', AdaptiveETA()]
 
 
+MAX_FILE_SIZE = 10000
+
 pbar_update_value = 0
 total_tasks = 0
 class RawPcapReaderFD(RawPcapReader):
@@ -80,30 +82,29 @@ def parse_file_and_append(file_name, lock, cv, task_idx, order_list, pktdump):
 
     local_pkt_list = list()
 
-    with PcapReader(file_name) as pcap_reader:
-        maxentries = sum(1 for _ in pcap_reader)
+    # with PcapReader(file_name) as pcap_reader:
+    #     maxentries = sum(1 for _ in pcap_reader)
 
-    tot_pbar = maxentries
+    tot_pbar = MAX_FILE_SIZE
 
     with PcapReader(file_name) as pcap_reader:
         for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
-            if j < maxentries:
+            if j < MAX_FILE_SIZE:
                 pkt = pcap_reader.read_packet()
 
+                wirelen = pkt.wirelen
+                
                 pkt[Ether].src = srcMAC
                 pkt[Ether].dst = dstMAC
 
-                print(pkt.wirelen)
-                print(len(pkt))
-
-                if pkt.wirelen != 0 and len(pkt) < pkt.wirelen:
-                    remaining_size = pkt.wirelen - len(pkt)
+                if wirelen != 0 and len(pkt) < wirelen:
+                    remaining_size = wirelen - len(pkt)
                     payload = Raw(RandString(size=remaining_size))
                     pkt = pkt / payload
                 
                 local_pkt_list.append(pkt)
 
-            if j == maxentries - 1:
+            if j == MAX_FILE_SIZE - 1:
                 with cv:
                     while order_list.count(task_idx-1) == 0:
                         cv.wait()    # Wait one second
@@ -126,7 +127,7 @@ def parse_and_write_pcap(input_file, output_file, count, debug):
     file_list = []
 
     tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
-    ret = subprocess.call(f"editcap -c 10000 {input_file} {tmp_dir.name}/trace.pcap", shell=True)
+    ret = subprocess.call(f"editcap -c {MAX_FILE_SIZE} {input_file} {tmp_dir.name}/trace.pcap", shell=True)
     for file in os.listdir(tmp_dir.name):
         if file.endswith(".pcap"):
             file_list.append(file)
@@ -143,7 +144,7 @@ def parse_and_write_pcap(input_file, output_file, count, debug):
     task_idx = 0
     task_order_list.append(task_idx)
     
-    with PcapWriter(output_file_path, append=True, sync=True) as pktdump:
+    with PcapWriter(output_file, append=True, sync=True) as pktdump:
         with ThreadPoolExecutor(max_workers=min(os.cpu_count(), 8)) as executor:
             for file in file_list:
                 task_idx += 1
