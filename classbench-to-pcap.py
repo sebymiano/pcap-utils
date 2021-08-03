@@ -144,6 +144,24 @@ def parse_and_write_file(input_file):
 
     return maxlines
 
+def inject_udp_packets(num_udp_packets):
+    eth = Ether(src=srcMAC, dst=dstMAC, type=0x800)
+    i = 0
+    for i in atpbar(range(num_udp_packets), name=f"Task udp miss"):
+        ip_src = str(RandIP())
+        ip_dst = str(RandIP())
+        sport = int(RandShort())
+        dport = int(RandShort())
+
+        pkt = eth / IP(src=ip_src, dst=ip_dst) / UDP(sport=sport, dport=dport)
+
+        if packetSize != 0 and len(pkt) < packetSize:
+            remaining_size = packetSize - len(pkt)
+            payload = Raw(RandString(size=remaining_size))
+            pkt = pkt / payload
+
+        wrpcap(output_file_path, [pkt], append=True, sync=True)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program used to generate pcap trace from Classbench generated traces')
@@ -152,6 +170,7 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--src-mac", type=str, help="Source MAC address to use in the generated pcap")
     parser.add_argument("-d", "--dst-mac", type=str, help="Destination MAC address to use in the generated pcap")
     parser.add_argument("-l", "--pkt-size", type=int, default=0, help="Size of the generated packet")
+    parser.add_argument("--udp-percentage", type=int, default=0, help="Percentage of UDP traffic to inject in the trace")
     parser.add_argument("--no-icmp", type=bool, default=False, help="Generated packets are only TCP and/or UDP")
 
     args = parser.parse_args()
@@ -174,6 +193,7 @@ if __name__ == '__main__':
 
     packetSize = args.pkt_size
     noICMP = args.no_icmp
+    udpPercentage = args.udp_percentage
 
     try:
         os.remove(output_file_path)
@@ -186,6 +206,10 @@ if __name__ == '__main__':
     randomDstPort = int(RandShort())
 
     tot_input_lines = parse_and_write_file(input_file_path)
+
+    udp_packets = int((tot_input_lines * udpPercentage)/100)
+    if udpPercentage > 0:
+        inject_udp_packets(udp_packets)
 
     print(f"Read and parsed a total of {tot_input_lines} from file")
     print(f"Output file created: {output_file_path}")
