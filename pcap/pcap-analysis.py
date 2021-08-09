@@ -45,6 +45,7 @@ SrcPort = dict()
 DstPort = dict()
 Flows = dict()
 totLines = dict()
+GeneralInfo = dict()
 
 
 def save_obj(obj, name):
@@ -60,6 +61,17 @@ def load_obj(name):
 def parse_pkt(packet):
     totLines[0] += 1
     skip_layer = True
+
+    if not GeneralInfo["TotPackets"]:
+        GeneralInfo["TotPackets"] = 1
+    else:
+        GeneralInfo["TotPackets"] += 1
+
+    if not GeneralInfo["TotPacketsSize"]:
+        GeneralInfo["TotPacketsSize"] = packet.wirelen
+    else:
+        GeneralInfo["TotPacketsSize"] += packet.wirelen
+
     src_ip = packet[IP].src
     dst_ip = packet[IP].dst
     proto = packet[IP].proto
@@ -109,6 +121,16 @@ def parse_pkt(packet):
         Flows[flow] += 1
 
     pbar.update(totLines[0])
+
+def save_general_info_dict():
+    flow_output_file_path = os.path.join(output_file_dir, f"general_info.csv")
+    with open(flow_output_file_path, 'w') as csv_output_file:
+        fieldnames = ['Tot Packets', 'Tot Size', 'Avg Pkt Size']
+
+        writer = csv.DictWriter(csv_output_file, fieldnames=fieldnames)
+        writer.writeheader()
+
+        writer.writerow({'Tot Packets': str(GeneralInfo["TotPackets"]), 'Tot Size': str(GeneralInfo["TotPacketsSize"]), 'Proto': str(GeneralInfo["TotPacketsSize"]/GeneralInfo["TotPackets"])})
 
 
 def save_flow_dict():
@@ -191,6 +213,7 @@ def parse_and_write_file(input_file):
     sniff(offline=input_file, prn=parse_pkt, store=0)
     print("\n")
     save_flow_dict()
+    save_general_info_dict()
     save_dict(SrcIPs, "Source IPs")
     save_dict(DstIPs, "Destination IPs")
     save_dict(Protocols, "Protocols")
