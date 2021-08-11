@@ -71,7 +71,7 @@ def numToDottedQuad(n):
 	return socket.inet_ntoa(struct.pack('>L',n))
 
 Pack_formatstring="dIIHHHHHHHHH"
-header='ig_intr_md.ingress_mac_tstamp,hdr.ipv4.src_addr,hdr.ipv4.dst_addr,hdr.ipv4.ttl,hdr.ipv4.protocol,hdr.ipv4.checksum,hdr.tcp.src_port,hdr.tcp.dst_port,hdr.tcp.checksum,hdr.udp.src_port,hdr.udp.dst_port,hdr.udp.checksum'
+header='ig_intr_md.ingress_mac_tstamp,hdr.ipv4.src_addr,hdr.ipv4.dst_addr,hdr.ipv4.ttl,hdr.ipv4.protocol,hdr.ipv4.checksum,hdr.tcp.src_port,hdr.tcp.dst_port,hdr.tcp.checksum,hdr.udp.src_port,hdr.udp.dst_port,hdr.udp.checksum,pktSize'
 harr=header.split(',')
 header_loc_map={harr[i]:i for i in range(len(harr))}
 
@@ -91,6 +91,8 @@ def parse_file_and_append(file_name, lock, cv, task_idx, order_list, final_list)
                 pkt = pcap_reader.read_packet()
 
                 pdict = {}
+
+                pdict['pktSize'] = pkt.wirelen
                 pdict['ig_intr_md.ingress_mac_tstamp']=pkt.time
                 if pkt.haslayer(IP):
                     pdict['hdr.ipv4.ttl']=pkt[IP].ttl
@@ -180,7 +182,7 @@ def parse_pcap_into_npy(input_file, count, debug):
             executor.submit(parse_file_and_append, copy.deepcopy(file), file_lock, cv, copy.deepcopy(task_idx), task_order_list, final_list)
 
     print(f"Parsed {len(final_list)} packets. Allocating numpy ndarray...") 
-    arr=np.zeros((len(final_list)),dtype= np.dtype('f16,u4,u4,u2,u2,u2,u2,u2,u2,u2,u2,u2'))
+    arr=np.zeros((len(final_list)),dtype= np.dtype('f16,u4,u4,u2,u2,u2,u2,u2,u2,u2,u2,u2,u4'))
 
     for i in range(len(final_list)):
         arr[i]=final_list[i]
