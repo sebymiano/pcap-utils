@@ -6,6 +6,7 @@ import pickle
 import socket
 import subprocess
 import numpy as np
+import struct
 
 
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA

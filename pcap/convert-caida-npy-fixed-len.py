@@ -182,6 +182,38 @@ def parse_and_write_pcap(input_file, output_file, lenght, debug, add_payload):
 
     return arr
 
+def load_trace_npy(trace_name, use_mmap=True):
+	if use_mmap:
+		Trace=np.load(trace_name, mmap_mode='r')
+	else:
+		Trace=np.load(trace_name)
+	return Trace
+
+def parse_and_write_numpy(trace, output_file, lenght, debug, add_payload):
+    count = 0
+    # packets = rdpcap(input_file)
+    max_size = trace.size
+    print(f"The entire size of the trace is {max_size}")
+    pbar = ProgressBar(widgets=widgets, maxval=max_size).start()
+
+    with PcapWriter(output_file, append=True, sync=True) as pktdump:
+        for pkt in trace:
+            src_ip = numToDottedQuad(pkt[1])
+            dst_ip = numToDottedQuad(pkt[2])
+            proto = pkt[4]
+            if proto == socket.IPPROTO_TCP:
+                src_port = pkt[6]
+                dst_port = pkt[7]
+            elif proto == socket.IPPROTO_TCP:
+                src_port = pkt[9]
+                dst_port = pkt[10]
+
+            new_pkt = build_packet_ipv4(srcMAC, dstMAC, src_ip, dst_ip, src_port, dst_port, proto, lenght)
+            pktdump.write(new_pkt)
+            
+            count += 1
+            pbar.update(count)
+            
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program used to convert a CAIDA PCAP trace into a line-rate one')
@@ -193,11 +225,13 @@ if __name__ == '__main__':
     parser.add_argument("-v","--verbose", action="store_true", help="Show additional debug info.")
     parser.add_argument("-p","--payload", action="store_true", help="Add payload to the trace.")
     parser.add_argument("-l","--lenght", type=int, default=64, help="Chop every packet to the specified lenght")
+    parser.add_argument("--numpy", dest='is_numpy', action='store_true', default=False, help="The input file is a numpy array")
 
     args = parser.parse_args()
 
     input_file_path = args.input_file
     output_file_path = args.output_file
+    is_numpy = args.is_numpy
 
     if args.src_mac is None:
         srcMAC = str(RandMac("00:00:00:00:00:00", True).mac)
@@ -214,6 +248,10 @@ if __name__ == '__main__':
     except OSError:
         pass
 
-    parse_and_write_pcap(input_file_path, output_file_path, args.lenght, args.verbose, args.payload)
+    if is_numpy:
+        trace = load_trace_npy(input_file_path)
+        parse_and_write_numpy(trace, output_file_path, args.lenght, args.verbose, args.payload)
+    else:
+        parse_and_write_pcap(input_file_path, output_file_path, args.lenght, args.verbose, args.payload)
 
     print(f"Output file created: {output_file_path}")
