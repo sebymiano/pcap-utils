@@ -77,6 +77,26 @@ header='ig_intr_md.ingress_mac_tstamp,hdr.ipv4.src_addr,hdr.ipv4.dst_addr,hdr.ip
 harr=header.split(',')
 header_loc_map={harr[i]:i for i in range(len(harr))}
 
+def build_packet_ipv4(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port, proto, lenght):
+    eth = Ether(src=src_mac, dst=dst_mac, type=0x800)
+    ip = IP(src=src_ip, dst=dst_ip)
+    if proto == socket.IPPROTO_UDP:
+        ipproto = UDP(sport=src_port, dport=dst_port)
+    elif proto == socket.IPPROTO_TCP:
+        ipproto = TCP(sport=src_port, dport=dst_port)
+    elif proto == socket.IPPROTO_ICMP:
+        ipproto = ICMP()
+    else:
+        ipproto = UDP(sport=src_port, dport=dst_port)
+        #assert False, f"Input file containing an unknown protocol number: {proto}"
+    pkt = eth / ip / ipproto
+    if lenght != 0 and len(pkt) < lenght:
+        remaining_size = lenght - len(pkt)
+        payload = Raw(RandString(size=remaining_size))
+        return pkt / payload
+
+    return eth / ip / ipproto
+
 def parse_file_and_append(file_name, lock, cv, task_idx, order_list, pktdump, add_payload=False):
     global total_tasks
 
@@ -93,16 +113,23 @@ def parse_file_and_append(file_name, lock, cv, task_idx, order_list, pktdump, ad
                 pkt = pcap_reader.read_packet()
 
                 wirelen = pkt.wirelen
-                
-                pkt[Ether].src = srcMAC
-                pkt[Ether].dst = dstMAC
 
-                if add_payload and wirelen != 0 and len(pkt) < wirelen:
-                    remaining_size = wirelen - len(pkt)
-                    payload = Raw(RandString(size=remaining_size))
-                    pkt = pkt / payload
-                
-                local_pkt_list.append(pkt)
+                if pkt.haslayer(IP) and (pkt.haslayer(UDP) or pkt.haslayer(TCP)):
+                    src_ip = str(pkt[IP].src)
+                    dst_ip = str(pkt[IP].dst)
+                    
+                    if pkt.haslayer(TCP):
+                        src_port = pkt[TCP].sport
+                        dst_port = pkt[TCP].dport
+                        proto = socket.IPPROTO_TCP
+                    
+                    if pkt.haslayer(UDP):
+                        src_port = pkt[UDP].sport
+                        dst_port = pkt[UDP].dport
+                        proto = socket.IPPROTO_UDP
+
+                    new_pkt = build_packet_ipv4(srcMAC, dstMAC, src_ip, dst_ip, src_port, dst_port, proto, wirelen)
+                    local_pkt_list.append(new_pkt)
 
             if j == MAX_FILE_SIZE - 1:
                 with cv:

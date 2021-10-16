@@ -133,14 +133,14 @@ def parse_file_and_append(file_name, lock, cv, task_idx, order_list, pktdump, le
                 local_pkt_list.append(new_pkt)
 
             if j == MAX_FILE_SIZE - 1:
-                with cv:
-                    while order_list.count(task_idx-1) == 0:
-                        cv.wait()    # Wait one second
-                with lock:
-                    pktdump.write(local_pkt_list)
-                with cv:
-                    order_list.append(task_idx)
-                    cv.notify_all()
+                # with cv:
+                #     while order_list.count(task_idx-1) == 0:
+                #         cv.wait()    # Wait one second
+                # with lock:
+                pktdump.write(local_pkt_list)
+                # with cv:
+                #     order_list.append(task_idx)
+                #     cv.notify_all()
 
 
 def parse_and_write_pcap(input_file, output_file, lenght, debug, add_payload):
