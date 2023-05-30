@@ -7,9 +7,9 @@ import os
 import threading
 import multiprocessing
 import mmap
-from atpbar import atpbar
+from atpbar import atpbar, register_reporter, find_reporter, flush
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
-from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures 
 import numpy as np
 
 from randmac import RandMac
@@ -25,6 +25,7 @@ widgets = [Percentage(),
            ' ', ETA(),
            ' ', AdaptiveETA()]
 
+MAX_FILE_SIZE=1000000
 
 pbar_update_value = 0
 total_tasks = 0
@@ -75,17 +76,21 @@ header='ig_intr_md.ingress_mac_tstamp,hdr.ipv4.src_addr,hdr.ipv4.dst_addr,hdr.ip
 harr=header.split(',')
 header_loc_map={harr[i]:i for i in range(len(harr))}
 
-def parse_file_and_append(file_name, lock, cv, task_idx, order_list, final_list):
+def parse_file_and_append(file_name, task_idx):
     global total_tasks
 
     local_pkt_list = list()
 
-    with PcapReader(file_name) as pcap_reader:
-        maxentries = sum(1 for _ in pcap_reader)
+    # with PcapReader(file_name) as pcap_reader:
+    #     maxentries = sum(1 for _ in pcap_reader)
 
+    command = f'capinfos {file_name} | grep "Number of packets" | tr -d " " | grep -oP "Numberofpackets=\K\d+"'
+    output = subprocess.check_output(command, shell=True, universal_newlines=True)
+    maxentries = int(output.strip())
     tot_pbar = maxentries
 
     with PcapReader(file_name) as pcap_reader:
+        # for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
         for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
             if j < maxentries:
                 pkt = pcap_reader.read_packet()
@@ -130,16 +135,7 @@ def parse_file_and_append(file_name, lock, cv, task_idx, order_list, final_list)
                     return line
                 local_pkt_list.append(tuple(to_list(pdict)))
 
-            if j == maxentries - 1:
-                with cv:
-                    while order_list.count(task_idx-1) == 0:
-                        cv.wait()    # Wait one second
-                with lock:
-                    for l_pkt in local_pkt_list:
-                        final_list.append(l_pkt)
-                with cv:
-                    order_list.append(task_idx)
-                    cv.notify_all()
+    return local_pkt_list
 
 
 def parse_pcap_into_npy(input_file, count, debug):
@@ -147,11 +143,6 @@ def parse_pcap_into_npy(input_file, count, debug):
     m = multiprocessing.Manager()
     file_lock = m.Lock()
     cv = threading.Condition()
-    # i = 0
-    # with PcapReader(input_file) as pcap_reader:
-    #     if i % 10000==0:
-    #         print('Progress: %d'%i)
-    #     maxentries = sum(1 for _ in pcap_reader)
     
     final_list = []
     arr = []
@@ -159,7 +150,7 @@ def parse_pcap_into_npy(input_file, count, debug):
     file_list = []
 
     tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
-    ret = subprocess.call(f"editcap -c 10000 {input_file} {tmp_dir.name}/trace.pcap", shell=True)
+    ret = subprocess.call(f"editcap -c {MAX_FILE_SIZE} {input_file} {tmp_dir.name}/trace.pcap", shell=True)
     for file in os.listdir(tmp_dir.name):
         if file.endswith(".pcap"):
             file_list.append(file)
@@ -172,14 +163,33 @@ def parse_pcap_into_npy(input_file, count, debug):
 
     file_list = [tmp_dir.name + "/" + s for s in file_list]
 
+    # for file_name in file_list:
+    #     command = f'capinfos {file_name} | grep "Number of packets" | tr -d " " | grep -oP "Numberofpackets=\K\d+"'
+    #     output = subprocess.check_output(command, shell=True, universal_newlines=True)
+    #     maxentries = int(output.strip())
+    #     print(f"Max entries in {file_name} is {maxentries}")
+
     task_order_list = list()
     task_idx = 0
     task_order_list.append(task_idx)
+
+    reporter = find_reporter()
     
-    with ThreadPoolExecutor(max_workers=min(os.cpu_count(), 8)) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max(os.cpu_count(), 8), initializer=register_reporter, initargs=[reporter]) as executor:
         for file in file_list:
             task_idx += 1
-            executor.submit(parse_file_and_append, copy.deepcopy(file), file_lock, cv, copy.deepcopy(task_idx), task_order_list, final_list)
+            future_to_file = {executor.submit(parse_file_and_append, copy.deepcopy(file), copy.deepcopy(task_idx)): file}
+        flush()
+        for future in concurrent.futures.as_completed(future_to_file):
+            file = future_to_file[future]
+            try:
+                local_pkt_list = future.result()
+                for pkt in local_pkt_list:
+                    final_list.append(pkt)
+            except Exception as exc:
+                print('%r generated an exception: %s' % (file, exc))
+            else:
+                print('%r file contains %d bytes' % (file, len(local_pkt_list)))
 
     print(f"Parsed {len(final_list)} packets. Allocating numpy ndarray...") 
     arr=np.zeros((len(final_list)),dtype= np.dtype('f16,u4,u4,u2,u2,u2,u2,u2,u2,u2,u2,u2,u4'))
@@ -189,7 +199,11 @@ def parse_pcap_into_npy(input_file, count, debug):
 
     tmp_dir.cleanup()
 
-    return arr
+    first_column = arr[:, 0]
+    sorted_indices = np.argsort(first_column)
+    sorted_array = arr[sorted_indices]
+
+    return sorted_array
 
 
 if __name__ == '__main__':
