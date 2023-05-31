@@ -135,7 +135,11 @@ def parse_file_and_append(file_name, task_idx):
                     return line
                 local_pkt_list.append(tuple(to_list(pdict)))
 
-    return local_pkt_list
+    arr=np.zeros((len(local_pkt_list)),dtype= np.dtype('f16,u4,u4,u2,u2,u2,u2,u2,u2,u2,u2,u2,u4'))
+    for i in range(len(local_pkt_list)):
+        arr[i]=local_pkt_list[i]
+
+    return arr
 
 
 def parse_pcap_into_npy(input_file, count, debug):
@@ -157,11 +161,10 @@ def parse_pcap_into_npy(input_file, count, debug):
 
     file_list.sort()
 
-    total_tasks = int(file_list[-1].split("_")[1])
-
-    print(f"Total number of tasks will be {total_tasks}")
-
     file_list = [tmp_dir.name + "/" + s for s in file_list]
+
+    total_tasks = len(file_list)
+    print(f"Total number of tasks will be {total_tasks}")
 
     # for file_name in file_list:
     #     command = f'capinfos {file_name} | grep "Number of packets" | tr -d " " | grep -oP "Numberofpackets=\K\d+"'
@@ -174,36 +177,33 @@ def parse_pcap_into_npy(input_file, count, debug):
     task_order_list.append(task_idx)
 
     reporter = find_reporter()
-    
+    future_to_file = dict()
     with concurrent.futures.ProcessPoolExecutor(max_workers=max(os.cpu_count(), 8), initializer=register_reporter, initargs=[reporter]) as executor:
         for file in file_list:
             task_idx += 1
-            future_to_file = {executor.submit(parse_file_and_append, copy.deepcopy(file), copy.deepcopy(task_idx)): file}
+            future_to_file[executor.submit(parse_file_and_append, copy.deepcopy(file), copy.deepcopy(task_idx))] = file
         flush()
+        print("Waiting for tasks to complete...")
+        print(f"Total tasks: {len(future_to_file)}")
         for future in concurrent.futures.as_completed(future_to_file):
             file = future_to_file[future]
             try:
                 local_pkt_list = future.result()
-                for pkt in local_pkt_list:
-                    final_list.append(pkt)
+                final_list.append(local_pkt_list)
             except Exception as exc:
                 print('%r generated an exception: %s' % (file, exc))
-            else:
-                print('%r file contains %d bytes' % (file, len(local_pkt_list)))
 
-    print(f"Parsed {len(final_list)} packets. Allocating numpy ndarray...") 
-    arr=np.zeros((len(final_list)),dtype= np.dtype('f16,u4,u4,u2,u2,u2,u2,u2,u2,u2,u2,u2,u4'))
+    print(f"Created {len(final_list)} numpy arrays") 
 
-    for i in range(len(final_list)):
-        arr[i]=final_list[i]
-
+    arr = np.concatenate(final_list)
+    print(f"Final array size: {len(arr)} packets")
     tmp_dir.cleanup()
 
-    first_column = arr[:, 0]
-    sorted_indices = np.argsort(first_column)
-    sorted_array = arr[sorted_indices]
+    # first_column = arr[:, 0]
+    # sorted_indices = np.argsort(first_column)
+    # sorted_array = arr[sorted_indices]
 
-    return sorted_array
+    return arr
 
 
 if __name__ == '__main__':
