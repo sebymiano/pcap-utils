@@ -20,6 +20,9 @@ from scapy.utils import wrpcap
 from scapy.volatile import RandIP, RandString
 from scapy.all import *
 
+import json
+from json import JSONEncoder
+
 widgets = [Percentage(),
            ' ', Bar(),
            ' ', ETA(),
@@ -29,38 +32,11 @@ MAX_FILE_SIZE=1000000
 
 pbar_update_value = 0
 total_tasks = 0
-class RawPcapReaderFD(RawPcapReader):
-    """A stateful pcap reader. Each packet is returned as a string"""
-
-    def __init__(self, fd):
-        self.filename = "dummy"
-        try:
-            self.f = fd
-            magic = self.f.read(4)
-        except IOError:
-            self.f = fd
-            magic = self.f.read(4)
-        if magic == "\xa1\xb2\xc3\xd4": #big endian
-            self.endian = ">"
-        elif  magic == "\xd4\xc3\xb2\xa1": #little endian
-            self.endian = "<"
-        else:
-            raise Scapy_Exception("Not a pcap capture file (bad magic)")
-        hdr = self.f.read(20)
-        if len(hdr)<20:
-            raise Scapy_Exception("Invalid pcap file (too short)")
-        vermaj,vermin,tz,sig,snaplen,linktype = struct.unpack(self.endian+"HHIIII",hdr)
-
-        self.linktype = linktype
-
-# class PcapReader(RawPcapReaderFD):
-#     def __init__(self, fd):
-#         RawPcapReaderFD.__init__(self, fd)
-#         try:
-#             self.LLcls = conf.l2types[self.linktype]
-#         except KeyError:
-#             warning("PcapReader: unknown LL type [%i]/[%#x]. Using Raw packets" % (self.linktype,self.linktype))
-#             self.LLcls = conf.raw_layer
+class NumpyArrayEncoder(JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return JSONEncoder.default(self, obj)
 
 
 def dottedQuadToNum(ip):
@@ -119,15 +95,15 @@ def parse_file_and_append(file_name, task_idx):
                     line=[]
                     for h in harr:
                         if (h not in p) or (p[h]==None):
-                            line.append(-1)
+                            line.append(0)
                         else:
                             line.append(p[h])
                     #timestamp
-                    line[0]=np.float128(line[0])
+                    line[0]=np.float64(line[0])
                     #ip
-                    if line[1] != -1:
+                    if line[1] != 0:
                         line[1] = dottedQuadToNum(line[1])
-                    if line[2] != -1:
+                    if line[2] != 0:
                         line[2] = dottedQuadToNum(line[2])
                     #everything else
                     for i in range(3,12):
@@ -135,7 +111,7 @@ def parse_file_and_append(file_name, task_idx):
                     return line
                 local_pkt_list.append(tuple(to_list(pdict)))
 
-    arr=np.zeros((len(local_pkt_list)),dtype= np.dtype('f16,u4,u4,u2,u2,u2,u2,u2,u2,u2,u2,u2,u4'))
+    arr=np.zeros((len(local_pkt_list)),dtype= np.dtype('f8,u4,u4,u2,u2,u2,u2,u2,u2,u2,u2,u2,u4'))
     for i in range(len(local_pkt_list)):
         arr[i]=local_pkt_list[i]
 
@@ -195,6 +171,11 @@ def parse_pcap_into_npy(input_file, count, debug):
 
     print(f"Created {len(final_list)} numpy arrays") 
 
+    # for i in range(len(final_list)):
+    #     print(f"Array {i} has {len(final_list[i])} packets")
+    #     with open(output_file_path+f"_{i}", 'w') as f:
+    #         json.dump(final_list[i], fp=f, cls=NumpyArrayEncoder)
+
     arr = np.concatenate(final_list)
     print(f"Final array size: {len(arr)} packets")
     tmp_dir.cleanup()
@@ -212,6 +193,7 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--output-file", required=True, type=str, help="Filename for output parsed numpy file (for efficient loading)")
     parser.add_argument("-c", "--count", metavar="count", type=int, default=-1, help="Number of packets to read before stopping. Default is -1 (no limit).")
     parser.add_argument("-v","--verbose", action="store_true", help="Show additional debug info.")
+    parser.add_argument("-j", "--json", action="store_true", help="Output JSON instead of numpy array")
 
     args = parser.parse_args()
 
@@ -225,5 +207,10 @@ if __name__ == '__main__':
 
     nparray = parse_pcap_into_npy(input_file_path, args.count, args.verbose)
 
-    np.save(output_file_path, nparray)
+    if args.json:
+        print("Converting to JSON...")
+        with open(output_file_path, 'w') as f:
+            json.dump(nparray, fp=f, cls=NumpyArrayEncoder)
+    else:
+        np.save(output_file_path, nparray)
     print(f"Output file created: {output_file_path}")
