@@ -192,6 +192,7 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--output-file", required=True, type=str, help="Filename for output parsed numpy file (for efficient loading)")
     parser.add_argument("-c", "--count", metavar="count", type=int, default=-1, help="Number of packets to read before stopping. Default is -1 (no limit).")
     parser.add_argument("-v","--verbose", action="store_true", help="Show additional debug info.")
+    parser.add_argument("-n", "--numpy", action="store_true", help="Output numpy array instead of pandas dataframe (default .pkl).")
 
     args = parser.parse_args()
 
@@ -207,6 +208,10 @@ if __name__ == '__main__':
 
     print(f"Saving output file: {output_file_path}")
     # np.save(output_file_path, nparray)
-    frame.to_pickle(output_file_path)
+    if args.numpy:
+        numpy_array = frame.to_numpy()
+        np.save(output_file_path, numpy_array)
+    else:
+        frame.to_pickle(output_file_path)
     # frame.to_csv(output_file_path, index=False)
     print(f"Output file created: {output_file_path}")
