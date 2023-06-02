@@ -19,6 +19,7 @@ from scapy.packet import Raw
 from scapy.utils import wrpcap
 from scapy.volatile import RandIP, RandString
 from scapy.all import *
+import pandas as pd
 
 import json
 from json import JSONEncoder
@@ -47,9 +48,9 @@ def numToDottedQuad(n):
 	"convert long int to dotted quad string"
 	return socket.inet_ntoa(struct.pack('>L',n))
 
-Pack_formatstring="dIIHHHHHHHHH"
-header='ig_intr_md.ingress_mac_tstamp,hdr.ipv4.src_addr,hdr.ipv4.dst_addr,hdr.ipv4.ttl,hdr.ipv4.protocol,hdr.ipv4.checksum,hdr.tcp.src_port,hdr.tcp.dst_port,hdr.tcp.checksum,hdr.udp.src_port,hdr.udp.dst_port,hdr.udp.checksum,pktSize'
+header='tstamp,pktsize,captured_size,pkt_num,hdr.ethernet.src_mac,hdr.ethernet.dst_mac,hdr.ethernet.type,hdr.ipv4.src_addr,hdr.ipv4.dst_addr,hdr.ipv4.ttl,hdr.ipv4.protocol,hdr.ipv4.checksum,hdr.tcp.src_port,hdr.tcp.dst_port,hdr.tcp.checksum,hdr.tcp.flags,hdr.tcp.seq,hdr.tcp.ack,hdr.tcp.window,hdr.udp.src_port,hdr.udp.dst_port,hdr.udp.checksum,hdr.udp.len'
 harr=header.split(',')
+# header_loc_map=np.array(harr)
 header_loc_map={harr[i]:i for i in range(len(harr))}
 
 def parse_file_and_append(file_name, task_idx):
@@ -57,80 +58,84 @@ def parse_file_and_append(file_name, task_idx):
 
     local_pkt_list = list()
 
-    # with PcapReader(file_name) as pcap_reader:
-    #     maxentries = sum(1 for _ in pcap_reader)
-
     command = f'capinfos {file_name} | grep "Number of packets" | tr -d " " | grep -oP "Numberofpackets=\K\d+"'
     output = subprocess.check_output(command, shell=True, universal_newlines=True)
     maxentries = int(output.strip())
     tot_pbar = maxentries
 
+    multiplier = (task_idx - 1) * MAX_FILE_SIZE
+
     with PcapReader(file_name) as pcap_reader:
-        # for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
         for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
             if j < maxentries:
                 pkt = pcap_reader.read_packet()
 
                 pdict = {}
 
-                pdict['pktSize'] = pkt.wirelen
-                pdict['ig_intr_md.ingress_mac_tstamp']=pkt.time
+                pdict['pktsize'] = pkt.wirelen
+                pdict['captured_size'] = np.uint32(len(pkt))
+                pdict['tstamp']=np.float128(pkt.time)
+                pdict['pkt_num']=np.uint64(multiplier + j)
+
+                if pkt.haslayer(Ether):
+                    pdict['hdr.ethernet.src_mac']=np.uint64(mac2str(pkt[Ether].src).replace(':',''),16)
+                    pdict['hdr.ethernet.dst_mac']=np.uint64(mac2str(pkt[Ether].dst).replace(':',''),16)
+                    pdict['hdr.ethernet.type']=np.uint16(pkt[Ether].type)
                 if pkt.haslayer(IP):
-                    pdict['hdr.ipv4.ttl']=pkt[IP].ttl
-                    pdict['hdr.ipv4.protocol']=pkt[IP].proto
-                    pdict['hdr.ipv4.checksum']=pkt[IP].chksum
-                    pdict['hdr.ipv4.src_addr']=pkt[IP].src
-                    pdict['hdr.ipv4.dst_addr']=pkt[IP].dst
+                    pdict['hdr.ipv4.ttl']=np.uint8(pkt[IP].ttl)
+                    pdict['hdr.ipv4.protocol']=np.uint8(pkt[IP].proto)
+                    pdict['hdr.ipv4.checksum']=np.uint16(pkt[IP].chksum)
+                    pdict['hdr.ipv4.src_addr']=np.uint32(dottedQuadToNum(pkt[IP].src))
+                    pdict['hdr.ipv4.dst_addr']=np.uint32(dottedQuadToNum(pkt[IP].dst))
 
                 if pkt.haslayer(TCP):
-                    pdict['hdr.tcp.src_port']=pkt[TCP].sport
-                    pdict['hdr.tcp.dst_port']=pkt[TCP].dport
-                    pdict['hdr.tcp.checksum']=pkt[TCP].chksum
+                    pdict['hdr.tcp.src_port']=np.uint16(pkt[TCP].sport)
+                    pdict['hdr.tcp.dst_port']=np.uint16(pkt[TCP].dport)
+                    pdict['hdr.tcp.checksum']=np.uint16(pkt[TCP].chksum)
+                    pdict['hdr.tcp.flags']=np.uint8(pkt[TCP].flags)
+                    pdict['hdr.tcp.seq']=np.uint32(pkt[TCP].seq)
+                    pdict['hdr.tcp.ack']=np.uint32(pkt[TCP].ack)
+                    pdict['hdr.tcp.window']=np.uint16(pkt[TCP].window)
 
                 if pkt.haslayer(UDP):
-                    pdict['hdr.udp.src_port']=pkt[UDP].sport
-                    pdict['hdr.udp.dst_port']=pkt[UDP].dport
-                    pdict['hdr.udp.checksum']=pkt[UDP].chksum
-                def to_list(p):
-                    line=[]
-                    for h in harr:
-                        if (h not in p) or (p[h]==None):
-                            line.append(0)
-                        else:
-                            line.append(p[h])
-                    #timestamp
-                    line[0]=np.float64(line[0])
-                    #ip
-                    if line[1] != 0:
-                        line[1] = dottedQuadToNum(line[1])
-                    if line[2] != 0:
-                        line[2] = dottedQuadToNum(line[2])
-                    #everything else
-                    for i in range(3,12):
-                        line[i] = int(line[i])
-                    return line
-                local_pkt_list.append(tuple(to_list(pdict)))
+                    pdict['hdr.udp.src_port']=np.uint16(pkt[UDP].sport)
+                    pdict['hdr.udp.dst_port']=np.uint16(pkt[UDP].dport)
+                    pdict['hdr.udp.checksum']=np.uint16(pkt[UDP].chksum)
+                    pdict['hdr.udp.len']=np.uint16(pkt[UDP].len)
 
-    arr=np.zeros((len(local_pkt_list)),dtype= np.dtype('f8,u4,u4,u2,u2,u2,u2,u2,u2,u2,u2,u2,u4'))
-    for i in range(len(local_pkt_list)):
-        arr[i]=local_pkt_list[i]
+                local_pkt_list.append(pdict)
 
-    return arr
+                # def to_list(p):
+                #     line=[]
+                #     for h in harr:
+                #         if (h not in p) or (p[h]==None):
+                #             line.append(0)
+                #         else:
+                #             line.append(p[h])
+                #     return line
+                # local_pkt_list.append(tuple(to_list(pdict)))
+
+    # arr=np.zeros((len(local_pkt_list)),dtype= np.dtype('f16,u4,u4,u8,u8,u8,u2,u4,u4,u1,u1,u2,u2,u2,u2,u1,u4,u4,u2,u2,u2,u2,u2'))
+    # for i in range(len(local_pkt_list)):
+    #     arr[i]=local_pkt_list[i]
+    frame = pd.DataFrame.from_records(local_pkt_list, columns=header_loc_map)
+
+    return frame
 
 
-def parse_pcap_into_npy(input_file, count, debug):
+def parse_pcap_into_panda(input_file, count, debug):
     global total_tasks
-    m = multiprocessing.Manager()
-    file_lock = m.Lock()
-    cv = threading.Condition()
     
     final_list = []
     arr = []
-    i = 0
     file_list = []
 
     tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
     ret = subprocess.call(f"editcap -c {MAX_FILE_SIZE} {input_file} {tmp_dir.name}/trace.pcap", shell=True)
+    if ret != 0:
+        print("editcap failed. Are you sure you have it installed?")
+        exit(-1)
+
     for file in os.listdir(tmp_dir.name):
         if file.endswith(".pcap"):
             file_list.append(file)
@@ -141,12 +146,6 @@ def parse_pcap_into_npy(input_file, count, debug):
 
     total_tasks = len(file_list)
     print(f"Total number of tasks will be {total_tasks}")
-
-    # for file_name in file_list:
-    #     command = f'capinfos {file_name} | grep "Number of packets" | tr -d " " | grep -oP "Numberofpackets=\K\d+"'
-    #     output = subprocess.check_output(command, shell=True, universal_newlines=True)
-    #     maxentries = int(output.strip())
-    #     print(f"Max entries in {file_name} is {maxentries}")
 
     task_order_list = list()
     task_idx = 0
@@ -171,20 +170,20 @@ def parse_pcap_into_npy(input_file, count, debug):
 
     print(f"Created {len(final_list)} numpy arrays") 
 
-    # for i in range(len(final_list)):
-    #     print(f"Array {i} has {len(final_list[i])} packets")
-    #     with open(output_file_path+f"_{i}", 'w') as f:
-    #         json.dump(final_list[i], fp=f, cls=NumpyArrayEncoder)
-
-    arr = np.concatenate(final_list)
+    arr = pd.concat(final_list)
+    # arr = np.concatenate(final_list)
     print(f"Final array size: {len(arr)} packets")
     tmp_dir.cleanup()
 
-    # first_column = arr[:, 0]
-    # sorted_indices = np.argsort(first_column)
-    # sorted_array = arr[sorted_indices]
+    # Sort the frame based on the timestamp
+    # sorted_frame = arr.sort_values(by=['tstamp'], ascending=True)
 
-    return arr
+    # Sort the frame based on the pkt_num
+    sorted_frame = arr.sort_values(by=['pkt_num'], ascending=True)
+
+    print(sorted_frame)
+
+    return sorted_frame
 
 
 if __name__ == '__main__':
@@ -193,7 +192,6 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--output-file", required=True, type=str, help="Filename for output parsed numpy file (for efficient loading)")
     parser.add_argument("-c", "--count", metavar="count", type=int, default=-1, help="Number of packets to read before stopping. Default is -1 (no limit).")
     parser.add_argument("-v","--verbose", action="store_true", help="Show additional debug info.")
-    parser.add_argument("-j", "--json", action="store_true", help="Output JSON instead of numpy array")
 
     args = parser.parse_args()
 
@@ -205,12 +203,10 @@ if __name__ == '__main__':
     except OSError:
         pass
 
-    nparray = parse_pcap_into_npy(input_file_path, args.count, args.verbose)
+    frame = parse_pcap_into_panda(input_file_path, args.count, args.verbose)
 
-    if args.json:
-        print("Converting to JSON...")
-        with open(output_file_path, 'w') as f:
-            json.dump(nparray, fp=f, cls=NumpyArrayEncoder)
-    else:
-        np.save(output_file_path, nparray)
+    print(f"Saving output file: {output_file_path}")
+    # np.save(output_file_path, nparray)
+    frame.to_pickle(output_file_path)
+    # frame.to_csv(output_file_path, index=False)
     print(f"Output file created: {output_file_path}")

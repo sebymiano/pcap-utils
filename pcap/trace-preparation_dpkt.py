@@ -15,12 +15,6 @@ from typing import Any
 import pandas as pd
 
 from randmac import RandMac
-from scapy.layers.inet import IP, TCP, UDP, ICMP
-from scapy.layers.l2 import Ether
-from scapy.packet import Raw
-from scapy.utils import wrpcap
-from scapy.volatile import RandIP, RandString
-from scapy.all import *
 
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
@@ -33,6 +27,8 @@ import dpkt
 import json
 from typing import TYPE_CHECKING, cast
 from collections import ChainMap
+import subprocess
+import tempfile
 
 widgets = [Percentage(),
            ' ', Bar(),
@@ -47,7 +43,7 @@ total_tasks = 0
 class BytesEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, bytes):
-            return obj.decode('utf-8')
+            return obj.decode('UTF8','replace')
         return json.JSONEncoder.default(self, obj)
 
 def extract_pkt_info(pkt):
@@ -90,9 +86,6 @@ def parse_file_and_append(file_name, task_idx):
 
     local_pkt_dict = dict()
 
-    # with PcapReader(file_name) as pcap_reader:
-    #     maxentries = sum(1 for _ in pcap_reader)
-
     command = f'capinfos {file_name} | grep "Number of packets" | tr -d " " | grep -oP "Numberofpackets=\K\d+"'
     output = subprocess.check_output(command, shell=True, universal_newlines=True)
     maxentries = int(output.strip())
@@ -107,12 +100,7 @@ def parse_file_and_append(file_name, task_idx):
                 timestamp, pkt = cast('tuple[float, bytes]', next(pcap_reader))
                 
                 packet_info = extract_pkt_info(pkt)
-                local_pkt_dict[val + f" {multiplier + j}"] = packet_info
-                print(local_pkt_dict)
-                # exit()
-                # local_pkt_list.append(info)
-
-    # df = pd.DataFrame(local_pkt_dict)                
+                local_pkt_dict[val + f" {multiplier + j}"] = packet_info             
 
     return local_pkt_dict
 
@@ -165,18 +153,12 @@ def parse_pcap_into_npy(input_file, count, debug):
     print(f"Created {len(final_list)} data frames.") 
 
     print("Creating final dictionary")
-    # final_result = {}
-    # for j in atpbar(range(len(final_list)), name=f"Dict concatenation"):
-    #     item = final_list[j]
-    #     for d in item:
-    #         final_result.update(d)
-    final_result = dict(ChainMap(*final_list))
-
-    for i in range(len(final_list)):
-        print(f"Array {i} has {len(final_list[i])} packets")
-        with open(output_file_path+f"_{i}", 'w') as f:
-            print(json.dump(final_list[i], f, cls=BytesEncoder))
-            # json.dumps(final_list[i], f, default_handler=str)
+    final_result = {}
+    for j in atpbar(range(len(final_list)), name=f"Concatenating results"):
+        dictionary = final_list[j]
+        for k, v in dictionary.items():
+            final_result[k] = v
+    # final_result = dict(ChainMap(*final_list))
 
     tmp_dir.cleanup()
 
@@ -201,10 +183,8 @@ if __name__ == '__main__':
         pass
 
     panda_df = parse_pcap_into_npy(input_file_path, args.count, args.verbose)
+    print("Writing output file...")
     with open(output_file_path, 'w') as f:
-        print(json.dumps(panda_df, default_handler=str))
-        # json.dumps(panda_df, f, default_handler=str)
-    # panda_df.reset_index(drop=True, inplace=True)
-    # panda_df.to_json(output_file_path, default_handler=str)
-    # np.save(output_file_path, nparray)
+        json.dump(panda_df, f, cls=BytesEncoder, default=str)
+
     print(f"Output file created: {output_file_path}")

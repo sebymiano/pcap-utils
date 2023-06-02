@@ -1,12 +1,5 @@
 import argparse
-import re
-import socket
-import ipaddress
-import struct
 import os
-import threading
-import multiprocessing
-import mmap
 from atpbar import atpbar, register_reporter, find_reporter, flush
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
 import concurrent.futures 
@@ -19,20 +12,11 @@ from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether
 from scapy.packet import Raw
 from scapy.utils import wrpcap
-from scapy.volatile import RandIP, RandString
 from scapy.all import *
 
-from ipaddress import IPv4Address, IPv6Address
-from typing import Any, Optional
 
-from dpkt.dpkt import Packet
-from dpkt.ip import IP
-from dpkt.ip6 import IP6, IP6FragmentHeader
-from dpkt.tcp import TCP
-import dpkt
 import json
 from typing import TYPE_CHECKING, cast
-from collections import ChainMap
 
 import scapy2dict
 
@@ -52,6 +36,16 @@ class BytesEncoder(json.JSONEncoder):
 pbar_update_value = 0
 total_tasks = 0
 
+def extract_pkt_info(pkt):
+    return dict(scapy2dict.to_dict(pkt))
+
+def extract_ip_info(pkt):
+    packet_info = dict()
+    if pkt.haslayer(IP):
+        packet_info["src"] = pkt[IP].src
+        packet_info["dst"] = pkt[IP].dst
+    return packet_info
+
 def parse_file_and_append(file_name, task_idx):
     global total_tasks
 
@@ -69,7 +63,11 @@ def parse_file_and_append(file_name, task_idx):
             if j < maxentries:
                 pkt = pcap_reader.read_packet()
                 
-                packet_info = dict(scapy2dict.to_dict(pkt))
+                # If you don't need all these fields, you can remove them
+                # and export only the ones you need
+                packet_info = extract_pkt_info(pkt)
+                # packet_info = extract_ip_info(pkt)
+
                 local_pkt_dict[val + f" {multiplier + j}"] = packet_info
                 local_pkt_dict[val + f" {multiplier + j}"]["wirelen"] = pkt.wirelen
                 local_pkt_dict[val + f" {multiplier + j}"]["time"] = pkt.time

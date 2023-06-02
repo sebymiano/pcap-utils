@@ -18,7 +18,7 @@ def to_dict(pkt, strict=False):
     return d if not strict else dict(**d)
 
 
-def _layer2dict(obj):
+def _layer2dict(obj, skip_raw):
     d = {}
 
     if not getattr(obj, 'fields_desc', None):
@@ -31,7 +31,7 @@ def _layer2dict(obj):
         if isinstance(value, bytes):
             value = value.decode('UTF8','replace')
         elif not isinstance(value, _native_value):
-            value = _layer2dict(value)
+            value = _layer2dict(value, skip_raw)
         d[f.name] = value
     return {obj.name: d}
 
@@ -41,7 +41,7 @@ class Packet2Dict:
         self.pkt = pkt
 
 
-    def to_dict(self):
+    def to_dict(self, skip_raw=False):
         """
         Turn every layer to dict, store in ChainMap type.
         :return: ChainMaq
@@ -53,7 +53,7 @@ class Packet2Dict:
             layer = self.pkt.getlayer(count)
             if not layer:
                 break
-            d.append(_layer2dict(layer))
+            d.append(_layer2dict(layer, skip_raw))
 
             count += 1
         return ChainMap(*d)
