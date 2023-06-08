@@ -1,20 +1,16 @@
 import argparse
 import os
 from atpbar import atpbar, register_reporter, find_reporter, flush
-from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
+from progressbar import Percentage, Bar, ETA, AdaptiveETA
 import concurrent.futures 
-import numpy as np
 
-from randmac import RandMac
-from scapy.layers.inet import IP, TCP, UDP, ICMP
+from scapy.layers.inet import IP
 from scapy.layers.l2 import Ether
 from scapy.packet import Raw
-from scapy.utils import wrpcap, PcapNgWriter
-from scapy.volatile import RandIP, RandString
+from scapy.utils import PcapNgWriter
+from scapy.volatile import RandString
 from scapy.all import *
 
-import json
-from json import JSONEncoder
 
 widgets = [Percentage(),
            ' ', Bar(),

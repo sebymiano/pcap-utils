@@ -1,10 +1,8 @@
 import argparse
 import numpy as np
-import heapq
 from scapy.all import *
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
 from enum import Enum
-import ipaddress
 import netaddr
 
 widgets = [Percentage(),

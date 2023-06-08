@@ -1,32 +1,14 @@
 import argparse
-import re
-import socket
-import ipaddress
-import struct
 import os
 import threading
 import multiprocessing
-import mmap
 from atpbar import atpbar, register_reporter, find_reporter, flush
-from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
+from progressbar import Percentage, Bar, ETA, AdaptiveETA
 import concurrent.futures 
-import numpy as np
-from typing import Any
-import pandas as pd
 
-from randmac import RandMac
-
-from ipaddress import IPv4Address, IPv6Address
-from typing import Any, Optional
-
-from dpkt.dpkt import Packet
-from dpkt.ip import IP
-from dpkt.ip6 import IP6, IP6FragmentHeader
-from dpkt.tcp import TCP
 import dpkt
 import json
-from typing import TYPE_CHECKING, cast
-from collections import ChainMap
+from typing import cast
 import subprocess
 import tempfile
 

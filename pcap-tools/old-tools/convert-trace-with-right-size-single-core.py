@@ -1,15 +1,10 @@
 import argparse
-import re
 import socket
-import ipaddress
 import struct
 import os
-import threading
-import multiprocessing
 import mmap
 from atpbar import atpbar
 from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
-from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from randmac import RandMac

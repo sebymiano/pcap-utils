@@ -1,24 +1,18 @@
 import argparse
-from multiprocessing.queues import JoinableQueue
 import re
 import socket
 import ipaddress
-import struct
 import os
 import threading
 import multiprocessing
-import math
 import queue
-from atpbar import atpbar
-from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
+from progressbar import Percentage, Bar, ETA, AdaptiveETA
 from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import ProcessPoolExecutor
 
 from randmac import RandMac
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether
 from scapy.packet import Raw
-from scapy.utils import wrpcap
 from scapy.volatile import RandIP, RandString
 from scapy.all import *
 

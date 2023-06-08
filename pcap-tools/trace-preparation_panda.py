@@ -1,27 +1,17 @@
 import argparse
-import re
 import socket
-import ipaddress
 import struct
 import os
-import threading
-import multiprocessing
-import mmap
 from atpbar import atpbar, register_reporter, find_reporter, flush
-from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
+from progressbar import Percentage, Bar, ETA, AdaptiveETA
 import concurrent.futures 
 import numpy as np
 
-from randmac import RandMac
-from scapy.layers.inet import IP, TCP, UDP, ICMP
+from scapy.layers.inet import IP, TCP, UDP
 from scapy.layers.l2 import Ether
-from scapy.packet import Raw
-from scapy.utils import wrpcap
-from scapy.volatile import RandIP, RandString
 from scapy.all import *
 import pandas as pd
 
-import json
 from json import JSONEncoder
 
 widgets = [Percentage(),

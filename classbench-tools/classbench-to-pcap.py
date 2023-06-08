@@ -2,13 +2,11 @@ import argparse
 import re
 import socket
 import ipaddress
-import struct
 import os
 import threading
 import multiprocessing
-import math
 from atpbar import atpbar
-from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
+from progressbar import Percentage, Bar, ETA, AdaptiveETA
 from concurrent.futures import ThreadPoolExecutor
 
 from randmac import RandMac

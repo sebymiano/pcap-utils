@@ -2,7 +2,6 @@
 # Copyright (c) 2023 Sebastiano Miano <mianosebastiano@gmail.com>
 
 import ctypes as ct
-import pathlib
 import os
 
 CUCKOO_ERROR_MSG_SIZE = 256

@@ -1,22 +1,14 @@
 import argparse
 import os
 from atpbar import atpbar, register_reporter, find_reporter, flush
-from progressbar import ProgressBar, Percentage, Bar, ETA, AdaptiveETA
+from progressbar import Percentage, Bar, ETA, AdaptiveETA
 import concurrent.futures 
-import numpy as np
-from typing import Any
-import pandas as pd
 
-from randmac import RandMac
-from scapy.layers.inet import IP, TCP, UDP, ICMP
-from scapy.layers.l2 import Ether
-from scapy.packet import Raw
-from scapy.utils import wrpcap
+from scapy.layers.inet import IP
 from scapy.all import *
 
 
 import json
-from typing import TYPE_CHECKING, cast
 
 import scapy2dict
 
