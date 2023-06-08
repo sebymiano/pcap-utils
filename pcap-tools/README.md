@@ -8,12 +8,12 @@ We recommend using a virtual environment to install the dependencies, so that yo
 ### Virtual Environment
 To create a virtual environment, run the following command:
 ```bash
-python3 -m venv venv
+python3 -m venv .venv
 ```
-This will create a folder called `venv` in the current directory, which will contain the virtual environment.
+This will create a folder called `.venv` in the current directory, which will contain the virtual environment.
 To activate the virtual environment, run the following command:
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 To deactivate the virtual environment, run the following command:
