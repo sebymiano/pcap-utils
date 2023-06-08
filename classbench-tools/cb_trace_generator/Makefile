@@ -23,3 +23,6 @@ trace_generator:	trace_generator.o db_parser.o trace_tools.o hlist.o dlist.o fli
 
 all:	trace_generator
 
+clean:
+	rm -f *.o trace_generator
+
