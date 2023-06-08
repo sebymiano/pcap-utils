@@ -167,6 +167,21 @@ if __name__ == '__main__':
     input_file_path = args.input_file
     output_file_path = args.output_file
 
+    # check if mergecap is installed
+    if not shutil.which("mergecap"):
+        print("mergecap not found. Please install wireshark.")
+        sys.exit(1)
+    
+    # check if editcap is installed
+    if not shutil.which("editcap"):
+        print("editcap not found. Please install wireshark.")
+        sys.exit(1)
+
+    # check if capinfos is installed
+    if not shutil.which("capinfos"):
+        print("capinfos not found. Please install wireshark.")
+        sys.exit(1)
+
     try:
         os.remove(output_file_path)
     except OSError:
