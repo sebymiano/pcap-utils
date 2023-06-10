@@ -1,3 +1,4 @@
 *.json
 *.pkl
 *.npy
+*.pcap

@@ -7,17 +7,12 @@ from progressbar import Percentage, Bar, ETA, AdaptiveETA
 import concurrent.futures 
 import numpy as np
 
-from scapy.layers.inet import IP, TCP, UDP
+from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether
 from scapy.all import *
 import pandas as pd
 
 from json import JSONEncoder
-
-widgets = [Percentage(),
-           ' ', Bar(),
-           ' ', ETA(),
-           ' ', AdaptiveETA()]
 
 MAX_FILE_SIZE=1000000
 
@@ -43,6 +38,186 @@ harr=header.split(',')
 # header_loc_map=np.array(harr)
 header_loc_map={harr[i]:i for i in range(len(harr))}
 
+header_type_dict = {
+    'tstamp': np.float128,
+    'pktsize': np.uint32,
+    'captured_size': np.uint32,
+    'pkt_num': np.uint64,
+    'hdr.ethernet.src_mac': np.uint64,
+    'hdr.ethernet.dst_mac': np.uint64,
+    'hdr.ethernet.type': np.uint16,
+    'hdr.ipv4.src_addr': np.uint32,
+    'hdr.ipv4.dst_addr': np.uint32,
+    'hdr.ipv4.ttl': np.uint8,
+    'hdr.ipv4.protocol': np.uint8,
+    'hdr.ipv4.checksum': np.uint16,
+    'hdr.ipv4.len': np.uint16,
+    'hdr.ipv4.version': np.uint8,
+    'hdr.ipv4.ihl': np.uint8,
+    'hdr.ipv4.tos': np.uint8,
+    'hdr.ipv4.flags': np.uint8,
+    'hdr.ipv4.frag': np.uint16,
+    'hdr.ipv4.id': np.uint16,
+    'hdr.tcp.src_port': np.uint16,
+    'hdr.tcp.dst_port': np.uint16,
+    'hdr.tcp.checksum': np.uint16,
+    'hdr.tcp.flags': np.uint8,
+    'hdr.tcp.seq': np.uint32,
+    'hdr.tcp.ack': np.uint32,
+    'hdr.tcp.window': np.uint16,
+    'hdr.udp.src_port': np.uint16,
+    'hdr.udp.dst_port': np.uint16,
+    'hdr.udp.checksum': np.uint16,
+    'hdr.udp.len': np.uint16,
+    'hdr.icmp.type': np.uint8,
+    'hdr.icmp.code': np.uint8,
+    'hdr.icmp.checksum': np.uint16,
+    'hdr.icmp.id': np.uint16,
+    'hdr.icmp.seq': np.uint16
+}
+
+header_type_dict2 = {
+    'tstamp': np.float128,
+    'pktsize': np.uint32,
+    'captured_size': np.uint32,
+    'pkt_num': np.uint64,
+    'hdr.ethernet.src_mac': str,
+    'hdr.ethernet.dst_mac': str,
+    'hdr.ethernet.type': np.uint16,
+    'hdr.ipv4.src_addr': str,
+    'hdr.ipv4.dst_addr': str,
+    'hdr.ipv4.ttl': np.uint8,
+    'hdr.ipv4.protocol': np.uint8,
+    'hdr.ipv4.checksum': np.uint16,
+    'hdr.ipv4.len': np.uint16,
+    'hdr.ipv4.version': np.uint8,
+    'hdr.ipv4.ihl': np.uint8,
+    'hdr.ipv4.tos': np.uint8,
+    'hdr.ipv4.flags': np.uint8,
+    'hdr.ipv4.frag': np.uint16,
+    'hdr.ipv4.id': np.uint16,
+    'hdr.tcp.src_port': np.uint16,
+    'hdr.tcp.dst_port': np.uint16,
+    'hdr.tcp.checksum': np.uint16,
+    'hdr.tcp.flags': np.uint8,
+    'hdr.tcp.seq': np.uint32,
+    'hdr.tcp.ack': np.uint32,
+    'hdr.tcp.window': np.uint16,
+    'hdr.udp.src_port': np.uint16,
+    'hdr.udp.dst_port': np.uint16,
+    'hdr.udp.checksum': np.uint16,
+    'hdr.udp.len': np.uint16,
+    'hdr.icmp.type': np.uint8,
+    'hdr.icmp.code': np.uint8,
+    'hdr.icmp.checksum': np.uint16,
+    'hdr.icmp.id': np.uint16,
+    'hdr.icmp.seq': np.uint16
+}
+
+def get_pkt_info(pkt, pkt_num):
+    pdict = {}
+    pdict['pktsize'] = pkt.wirelen
+    pdict['captured_size'] = np.uint32(len(pkt))
+    pdict['tstamp']=np.float128(pkt.time)
+    pdict['pkt_num']=np.uint64(pkt_num)
+
+    if pkt.haslayer(Ether):
+        pdict['hdr.ethernet.src_mac']=np.uint64(mac2str(pkt[Ether].src).replace(':',''),16)
+        pdict['hdr.ethernet.dst_mac']=np.uint64(mac2str(pkt[Ether].dst).replace(':',''),16)
+        pdict['hdr.ethernet.type']=np.uint16(pkt[Ether].type)
+
+    if pkt.haslayer(IP):
+        pdict['hdr.ipv4.ttl']=np.uint8(pkt[IP].ttl)
+        pdict['hdr.ipv4.protocol']=np.uint8(pkt[IP].proto)
+        pdict['hdr.ipv4.checksum']=np.uint16(pkt[IP].chksum)
+        pdict['hdr.ipv4.src_addr']=np.uint32(dottedQuadToNum(pkt[IP].src))
+        pdict['hdr.ipv4.dst_addr']=np.uint32(dottedQuadToNum(pkt[IP].dst))
+        pdict['hdr.ipv4.version'] = int(pkt[IP].version)
+        pdict['hdr.ipv4.len'] = np.uint16(pkt[IP].len)
+        pdict['hdr.ipv4.ihl'] = np.uint8(pkt[IP].ihl)
+        pdict['hdr.ipv4.tos'] = np.uint8(pkt[IP].tos)
+        pdict['hdr.ipv4.flags'] = np.uint8(pkt[IP].flags)
+        pdict['hdr.ipv4.frag'] = np.uint16(pkt[IP].frag)
+        pdict['hdr.ipv4.id'] = np.uint16(pkt[IP].id)
+
+    if pkt.haslayer(TCP):
+        pdict['hdr.tcp.src_port']=np.uint16(pkt[TCP].sport)
+        pdict['hdr.tcp.dst_port']=np.uint16(pkt[TCP].dport)
+        pdict['hdr.tcp.checksum']=np.uint16(pkt[TCP].chksum)
+        pdict['hdr.tcp.flags']=np.uint8(pkt[TCP].flags)
+        pdict['hdr.tcp.seq']=np.uint32(pkt[TCP].seq)
+        pdict['hdr.tcp.ack']=np.uint32(pkt[TCP].ack)
+        pdict['hdr.tcp.window']=np.uint16(pkt[TCP].window)
+
+    if pkt.haslayer(UDP):
+        pdict['hdr.udp.src_port']=np.uint16(pkt[UDP].sport)
+        pdict['hdr.udp.dst_port']=np.uint16(pkt[UDP].dport)
+        pdict['hdr.udp.checksum']=np.uint16(pkt[UDP].chksum)
+        pdict['hdr.udp.len']=np.uint16(pkt[UDP].len)
+
+    if pkt.haslayer(ICMP):
+        pdict['hdr.icmp.type']=np.uint8(pkt[ICMP].type)
+        pdict['hdr.icmp.code']=np.uint8(pkt[ICMP].code)
+        pdict['hdr.icmp.checksum']=np.uint16(pkt[ICMP].chksum)
+        pdict['hdr.icmp.id']=np.uint16(pkt[ICMP].id)
+        pdict['hdr.icmp.seq']=np.uint16(pkt[ICMP].seq)
+
+    return pdict
+
+def get_pkt_info2(pkt, pkt_num):
+    pdict = {}
+    pdict['pktsize'] = pkt.wirelen
+    pdict['captured_size'] = len(pkt)
+    pdict['tstamp']=pkt.time
+    pdict['pkt_num']=pkt_num
+
+    if pkt.haslayer(Ether):
+        pdict['hdr.ethernet.src_mac']=pkt[Ether].src
+        pdict['hdr.ethernet.dst_mac']=pkt[Ether].dst
+        pdict['hdr.ethernet.type']=int(pkt[Ether].type)
+
+    if pkt.haslayer(IP):
+        pdict['hdr.ipv4.ttl']=int(pkt[IP].ttl)
+        pdict['hdr.ipv4.protocol']=int(pkt[IP].proto)
+        pdict['hdr.ipv4.checksum']=int(pkt[IP].chksum)
+        pdict['hdr.ipv4.src_addr']=pkt[IP].src
+        pdict['hdr.ipv4.dst_addr']=pkt[IP].dst
+        pdict['hdr.ipv4.len'] = int(pkt[IP].len)
+        pdict['hdr.ipv4.version'] = int(pkt[IP].version)
+        pdict['hdr.ipv4.ihl'] = int(pkt[IP].ihl)
+        pdict['hdr.ipv4.tos'] = int(pkt[IP].tos)
+        pdict['hdr.ipv4.flags'] = int(pkt[IP].flags)
+        pdict['hdr.ipv4.frag'] = int(pkt[IP].frag)
+        pdict['hdr.ipv4.id'] = int(pkt[IP].id)
+
+    if pkt.haslayer(TCP):
+        pdict['hdr.tcp.src_port']=int(pkt[TCP].sport)
+        pdict['hdr.tcp.dst_port']=int(pkt[TCP].dport)
+        pdict['hdr.tcp.checksum']=int(pkt[TCP].chksum)
+        pdict['hdr.tcp.flags']=pkt[TCP].flags
+        pdict['hdr.tcp.seq']=int(pkt[TCP].seq)
+        pdict['hdr.tcp.ack']=int(pkt[TCP].ack)
+        pdict['hdr.tcp.window']=int(pkt[TCP].window)
+
+    if pkt.haslayer(UDP):
+        pdict['hdr.udp.src_port']=int(pkt[UDP].sport)
+        pdict['hdr.udp.dst_port']=int(pkt[UDP].dport)
+        pdict['hdr.udp.checksum']=int(pkt[UDP].chksum)
+        pdict['hdr.udp.len']=int(pkt[UDP].len)
+    
+    if pkt.haslayer(ICMP):
+        pdict['hdr.icmp.type']=int(pkt[ICMP].type)
+        pdict['hdr.icmp.code']=int(pkt[ICMP].code)
+        pdict['hdr.icmp.checksum']=int(pkt[ICMP].chksum)
+        if pkt[ICMP].id is not None:
+            pdict['hdr.icmp.id']=int(pkt[ICMP].id)
+        
+        if pkt[ICMP].seq is not None:
+            pdict['hdr.icmp.seq']=int(pkt[ICMP].seq)
+
+    return pdict
+
+
 def parse_file_and_append(file_name, task_idx):
     global total_tasks
 
@@ -60,55 +235,17 @@ def parse_file_and_append(file_name, task_idx):
             if j < maxentries:
                 pkt = pcap_reader.read_packet()
 
-                pdict = {}
-
-                pdict['pktsize'] = pkt.wirelen
-                pdict['captured_size'] = np.uint32(len(pkt))
-                pdict['tstamp']=np.float128(pkt.time)
-                pdict['pkt_num']=np.uint64(multiplier + j)
-
-                if pkt.haslayer(Ether):
-                    pdict['hdr.ethernet.src_mac']=np.uint64(mac2str(pkt[Ether].src).replace(':',''),16)
-                    pdict['hdr.ethernet.dst_mac']=np.uint64(mac2str(pkt[Ether].dst).replace(':',''),16)
-                    pdict['hdr.ethernet.type']=np.uint16(pkt[Ether].type)
-                if pkt.haslayer(IP):
-                    pdict['hdr.ipv4.ttl']=np.uint8(pkt[IP].ttl)
-                    pdict['hdr.ipv4.protocol']=np.uint8(pkt[IP].proto)
-                    pdict['hdr.ipv4.checksum']=np.uint16(pkt[IP].chksum)
-                    pdict['hdr.ipv4.src_addr']=np.uint32(dottedQuadToNum(pkt[IP].src))
-                    pdict['hdr.ipv4.dst_addr']=np.uint32(dottedQuadToNum(pkt[IP].dst))
-
-                if pkt.haslayer(TCP):
-                    pdict['hdr.tcp.src_port']=np.uint16(pkt[TCP].sport)
-                    pdict['hdr.tcp.dst_port']=np.uint16(pkt[TCP].dport)
-                    pdict['hdr.tcp.checksum']=np.uint16(pkt[TCP].chksum)
-                    pdict['hdr.tcp.flags']=np.uint8(pkt[TCP].flags)
-                    pdict['hdr.tcp.seq']=np.uint32(pkt[TCP].seq)
-                    pdict['hdr.tcp.ack']=np.uint32(pkt[TCP].ack)
-                    pdict['hdr.tcp.window']=np.uint16(pkt[TCP].window)
-
-                if pkt.haslayer(UDP):
-                    pdict['hdr.udp.src_port']=np.uint16(pkt[UDP].sport)
-                    pdict['hdr.udp.dst_port']=np.uint16(pkt[UDP].dport)
-                    pdict['hdr.udp.checksum']=np.uint16(pkt[UDP].chksum)
-                    pdict['hdr.udp.len']=np.uint16(pkt[UDP].len)
-
+                pdict = get_pkt_info2(pkt, multiplier + j)
                 local_pkt_list.append(pdict)
-
-                # def to_list(p):
-                #     line=[]
-                #     for h in harr:
-                #         if (h not in p) or (p[h]==None):
-                #             line.append(0)
-                #         else:
-                #             line.append(p[h])
-                #     return line
-                # local_pkt_list.append(tuple(to_list(pdict)))
-
-    # arr=np.zeros((len(local_pkt_list)),dtype= np.dtype('f16,u4,u4,u8,u8,u8,u2,u4,u4,u1,u1,u2,u2,u2,u2,u1,u4,u4,u2,u2,u2,u2,u2'))
-    # for i in range(len(local_pkt_list)):
-    #     arr[i]=local_pkt_list[i]
-    frame = pd.DataFrame.from_records(local_pkt_list, columns=header_loc_map)
+    try:
+        frame = pd.DataFrame.from_records(local_pkt_list, columns=header_type_dict2.keys())
+        frame = frame.replace(np.nan,0)
+        frame = frame.astype(header_type_dict2)
+        frame = frame.replace("0.0", np.nan)
+    except Exception as e:
+        print(f"Error in task {task_idx}")
+        print(e)
+        exit(-1)
 
     return frame
 
