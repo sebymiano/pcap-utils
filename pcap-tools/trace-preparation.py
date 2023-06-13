@@ -7,12 +7,14 @@ from progressbar import Percentage, Bar, ETA, AdaptiveETA
 import concurrent.futures 
 import numpy as np
 
-from scapy.layers.inet import IP, TCP, UDP, ICMP
+from scapy.layers.inet import IP, TCP, UDP, ICMP, IPOption, TCPOptionsField
 from scapy.layers.l2 import Ether
 from scapy.all import *
 import pandas as pd
 
 from json import JSONEncoder
+import mmap
+import time
 
 MAX_FILE_SIZE=1000000
 
@@ -46,25 +48,30 @@ header_type_dict = {
     'hdr.ethernet.src_mac': np.uint64,
     'hdr.ethernet.dst_mac': np.uint64,
     'hdr.ethernet.type': np.uint16,
-    'hdr.ipv4.src_addr': np.uint32,
-    'hdr.ipv4.dst_addr': np.uint32,
-    'hdr.ipv4.ttl': np.uint8,
-    'hdr.ipv4.protocol': np.uint8,
-    'hdr.ipv4.checksum': np.uint16,
-    'hdr.ipv4.len': np.uint16,
     'hdr.ipv4.version': np.uint8,
     'hdr.ipv4.ihl': np.uint8,
     'hdr.ipv4.tos': np.uint8,
+    'hdr.ipv4.len': np.uint16,
+    'hdr.ipv4.id': np.uint16,
     'hdr.ipv4.flags': np.uint8,
     'hdr.ipv4.frag': np.uint16,
-    'hdr.ipv4.id': np.uint16,
+    'hdr.ipv4.ttl': np.uint8,
+    'hdr.ipv4.protocol': np.uint8,
+    'hdr.ipv4.checksum': np.uint16,
+    'hdr.ipv4.src_addr': np.uint32,
+    'hdr.ipv4.dst_addr': np.uint32,
+    'hdr.ipv4.options': object,
     'hdr.tcp.src_port': np.uint16,
     'hdr.tcp.dst_port': np.uint16,
-    'hdr.tcp.checksum': np.uint16,
-    'hdr.tcp.flags': np.uint8,
     'hdr.tcp.seq': np.uint32,
     'hdr.tcp.ack': np.uint32,
+    'hdr.tcp.dataofs': np.uint8,
+    'hdr.tcp.reserved': np.uint8,
+    'hdr.tcp.flags': np.uint8,
     'hdr.tcp.window': np.uint16,
+    'hdr.tcp.checksum': np.uint16,
+    'hdr.tcp.urgptr': np.uint16,
+    'hdr.tcp.options': object,
     'hdr.udp.src_port': np.uint16,
     'hdr.udp.dst_port': np.uint16,
     'hdr.udp.checksum': np.uint16,
@@ -84,25 +91,32 @@ header_type_dict2 = {
     'hdr.ethernet.src_mac': str,
     'hdr.ethernet.dst_mac': str,
     'hdr.ethernet.type': np.uint16,
-    'hdr.ipv4.src_addr': str,
-    'hdr.ipv4.dst_addr': str,
-    'hdr.ipv4.ttl': np.uint8,
-    'hdr.ipv4.protocol': np.uint8,
-    'hdr.ipv4.checksum': np.uint16,
-    'hdr.ipv4.len': np.uint16,
     'hdr.ipv4.version': np.uint8,
     'hdr.ipv4.ihl': np.uint8,
     'hdr.ipv4.tos': np.uint8,
+    'hdr.ipv4.len': np.uint16,
+    'hdr.ipv4.id': np.uint16,
     'hdr.ipv4.flags': np.uint8,
     'hdr.ipv4.frag': np.uint16,
-    'hdr.ipv4.id': np.uint16,
+    'hdr.ipv4.ttl': np.uint8,
+    'hdr.ipv4.protocol': np.uint8,
+    'hdr.ipv4.checksum': np.uint16,
+    'hdr.ipv4.src_addr': str,
+    'hdr.ipv4.dst_addr': str,
+    'hdr.ipv4.options': object,
+    'hdr.ipv4.options.bytes': object,
     'hdr.tcp.src_port': np.uint16,
     'hdr.tcp.dst_port': np.uint16,
-    'hdr.tcp.checksum': np.uint16,
-    'hdr.tcp.flags': np.uint8,
     'hdr.tcp.seq': np.uint32,
     'hdr.tcp.ack': np.uint32,
+    'hdr.tcp.dataofs': np.uint8,
+    'hdr.tcp.reserved': np.uint8,
+    'hdr.tcp.flags': np.uint8,
     'hdr.tcp.window': np.uint16,
+    'hdr.tcp.checksum': np.uint16,
+    'hdr.tcp.urgptr': np.uint16,
+    'hdr.tcp.options': object,
+    'hdr.tcp.options.bytes': object,
     'hdr.udp.src_port': np.uint16,
     'hdr.udp.dst_port': np.uint16,
     'hdr.udp.checksum': np.uint16,
@@ -113,6 +127,10 @@ header_type_dict2 = {
     'hdr.icmp.id': np.uint16,
     'hdr.icmp.seq': np.uint16
 }
+
+def get_field_bytes(pkt, name):
+     fld, val = pkt.getfield_and_val(name)
+     return fld.i2m(pkt, val)
 
 def get_pkt_info(pkt, pkt_num):
     pdict = {}
@@ -127,27 +145,32 @@ def get_pkt_info(pkt, pkt_num):
         pdict['hdr.ethernet.type']=np.uint16(pkt[Ether].type)
 
     if pkt.haslayer(IP):
+        pdict['hdr.ipv4.version'] = np.uint8(pkt[IP].version)
+        pdict['hdr.ipv4.ihl'] = np.uint8(pkt[IP].ihl)
+        pdict['hdr.ipv4.tos'] = np.uint8(pkt[IP].tos)
+        pdict['hdr.ipv4.len'] = np.uint16(pkt[IP].len)
+        pdict['hdr.ipv4.id'] = np.uint16(pkt[IP].id)
+        pdict['hdr.ipv4.flags'] = np.uint8(pkt[IP].flags)
+        pdict['hdr.ipv4.frag'] = np.uint16(pkt[IP].frag)
         pdict['hdr.ipv4.ttl']=np.uint8(pkt[IP].ttl)
         pdict['hdr.ipv4.protocol']=np.uint8(pkt[IP].proto)
         pdict['hdr.ipv4.checksum']=np.uint16(pkt[IP].chksum)
         pdict['hdr.ipv4.src_addr']=np.uint32(dottedQuadToNum(pkt[IP].src))
         pdict['hdr.ipv4.dst_addr']=np.uint32(dottedQuadToNum(pkt[IP].dst))
-        pdict['hdr.ipv4.version'] = int(pkt[IP].version)
-        pdict['hdr.ipv4.len'] = np.uint16(pkt[IP].len)
-        pdict['hdr.ipv4.ihl'] = np.uint8(pkt[IP].ihl)
-        pdict['hdr.ipv4.tos'] = np.uint8(pkt[IP].tos)
-        pdict['hdr.ipv4.flags'] = np.uint8(pkt[IP].flags)
-        pdict['hdr.ipv4.frag'] = np.uint16(pkt[IP].frag)
-        pdict['hdr.ipv4.id'] = np.uint16(pkt[IP].id)
+        pdict['hdr.ipv4.options']=pkt[IP].options
 
     if pkt.haslayer(TCP):
         pdict['hdr.tcp.src_port']=np.uint16(pkt[TCP].sport)
         pdict['hdr.tcp.dst_port']=np.uint16(pkt[TCP].dport)
-        pdict['hdr.tcp.checksum']=np.uint16(pkt[TCP].chksum)
-        pdict['hdr.tcp.flags']=np.uint8(pkt[TCP].flags)
         pdict['hdr.tcp.seq']=np.uint32(pkt[TCP].seq)
         pdict['hdr.tcp.ack']=np.uint32(pkt[TCP].ack)
+        pdict['hdr.tcp.dataofs']=np.uint8(pkt[TCP].dataofs)
+        pdict['hdr.tcp.reserved']=np.uint8(pkt[TCP].reserved)
+        pdict['hdr.tcp.flags']=pkt[TCP].flags
         pdict['hdr.tcp.window']=np.uint16(pkt[TCP].window)
+        pdict['hdr.tcp.checksum']=np.uint16(pkt[TCP].chksum)
+        pdict['hdr.tcp.urgptr']=np.uint16(pkt[TCP].urgptr)
+        pdict['hdr.tcp.options']=pkt[TCP].options
 
     if pkt.haslayer(UDP):
         pdict['hdr.udp.src_port']=np.uint16(pkt[UDP].sport)
@@ -177,27 +200,34 @@ def get_pkt_info2(pkt, pkt_num):
         pdict['hdr.ethernet.type']=int(pkt[Ether].type)
 
     if pkt.haslayer(IP):
+        pdict['hdr.ipv4.version'] = int(pkt[IP].version)
+        pdict['hdr.ipv4.ihl'] = int(pkt[IP].ihl)
+        pdict['hdr.ipv4.tos'] = int(pkt[IP].tos)
+        pdict['hdr.ipv4.len'] = int(pkt[IP].len)
+        pdict['hdr.ipv4.id'] = int(pkt[IP].id)
+        pdict['hdr.ipv4.flags'] = int(pkt[IP].flags)
+        pdict['hdr.ipv4.frag'] = int(pkt[IP].frag)
         pdict['hdr.ipv4.ttl']=int(pkt[IP].ttl)
         pdict['hdr.ipv4.protocol']=int(pkt[IP].proto)
         pdict['hdr.ipv4.checksum']=int(pkt[IP].chksum)
         pdict['hdr.ipv4.src_addr']=pkt[IP].src
         pdict['hdr.ipv4.dst_addr']=pkt[IP].dst
-        pdict['hdr.ipv4.len'] = int(pkt[IP].len)
-        pdict['hdr.ipv4.version'] = int(pkt[IP].version)
-        pdict['hdr.ipv4.ihl'] = int(pkt[IP].ihl)
-        pdict['hdr.ipv4.tos'] = int(pkt[IP].tos)
-        pdict['hdr.ipv4.flags'] = int(pkt[IP].flags)
-        pdict['hdr.ipv4.frag'] = int(pkt[IP].frag)
-        pdict['hdr.ipv4.id'] = int(pkt[IP].id)
+        pdict['hdr.ipv4.options']=pkt[IP].options
+        pdict['hdr.ipv4.options.bytes']=get_field_bytes(pkt[IP], "options")
 
     if pkt.haslayer(TCP):
         pdict['hdr.tcp.src_port']=int(pkt[TCP].sport)
         pdict['hdr.tcp.dst_port']=int(pkt[TCP].dport)
-        pdict['hdr.tcp.checksum']=int(pkt[TCP].chksum)
-        pdict['hdr.tcp.flags']=pkt[TCP].flags
         pdict['hdr.tcp.seq']=int(pkt[TCP].seq)
         pdict['hdr.tcp.ack']=int(pkt[TCP].ack)
+        pdict['hdr.tcp.dataofs']=int(pkt[TCP].dataofs)
+        pdict['hdr.tcp.reserved']=int(pkt[TCP].reserved)
+        pdict['hdr.tcp.flags']=pkt[TCP].flags
         pdict['hdr.tcp.window']=int(pkt[TCP].window)
+        pdict['hdr.tcp.checksum']=int(pkt[TCP].chksum)
+        pdict['hdr.tcp.urgptr']=int(pkt[TCP].urgptr)
+        pdict['hdr.tcp.options']=pkt[TCP].options
+        pdict['hdr.tcp.options.bytes']=get_field_bytes(pkt[TCP], "options")
 
     if pkt.haslayer(UDP):
         pdict['hdr.udp.src_port']=int(pkt[UDP].sport)
@@ -302,9 +332,6 @@ def parse_pcap_into_panda(input_file, count, debug):
     print(f"Final array size: {len(arr)} packets")
     tmp_dir.cleanup()
 
-    # Sort the frame based on the timestamp
-    # sorted_frame = arr.sort_values(by=['tstamp'], ascending=True)
-
     # Sort the frame based on the pkt_num
     sorted_frame = arr.sort_values(by=['pkt_num'], ascending=True)
 
@@ -346,6 +373,8 @@ if __name__ == '__main__':
     except OSError:
         pass
 
+    start_time = time.time()
+
     frame = parse_pcap_into_panda(input_file_path, args.count, args.verbose)
 
     print(f"Saving output file: {output_file_path}")
@@ -355,5 +384,22 @@ if __name__ == '__main__':
         np.save(output_file_path, numpy_array)
     else:
         frame.to_pickle(output_file_path)
-    # frame.to_csv(output_file_path, index=False)
+    
+    end_time = time.time()
+    
+    # Calculate the elapsed time
+    elapsed_time = end_time - start_time
+
+    # Convert elapsed time to hours, minutes, and seconds
+    hours, remainder = divmod(elapsed_time, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    # Print the elapsed time
+    if hours >= 1:
+        print(f"Elapsed time: {int(hours)} hours {int(minutes)} minutes {int(seconds)} seconds")
+    elif minutes >= 1:
+        print(f"Elapsed time: {int(minutes)} minutes {int(seconds)} seconds")
+    else:
+        print(f"Elapsed time: {int(seconds)} seconds")
+
     print(f"Output file created: {output_file_path}")

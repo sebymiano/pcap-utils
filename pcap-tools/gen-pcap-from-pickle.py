@@ -1,9 +1,6 @@
 import argparse
-import socket
-import struct
 import os
 from atpbar import atpbar, register_reporter, find_reporter, flush
-from progressbar import Percentage, Bar, ETA, AdaptiveETA
 import concurrent.futures 
 import numpy as np
 
@@ -13,7 +10,14 @@ from scapy.all import *
 from scapy.data import ETH_P_IP, IP_PROTOS
 import pandas as pd
 
+import mmap
+
 MAX_ENTRIES_PER_FILE = 1000000
+
+def init_pool(reporter, the_data_frame):
+    register_reporter(reporter)
+    global data_frame
+    data_frame = the_data_frame
 
 def gen_packet(entry_pd):
     pkt = None
@@ -45,7 +49,7 @@ def gen_packet(entry_pd):
             # print("Destination IP address is not set")
             return None
         
-        ip = IP(src=entry['hdr.ipv4.src_addr'], dst=entry['hdr.ipv4.dst_addr'], ttl=entry['hdr.ipv4.ttl'], proto=entry['hdr.ipv4.protocol'])
+        ip = IP()
         ip.version = entry["hdr.ipv4.version"]
         ip.ihl = entry["hdr.ipv4.ihl"]
         ip.tos = entry["hdr.ipv4.tos"]
@@ -53,10 +57,26 @@ def gen_packet(entry_pd):
         ip.id = entry["hdr.ipv4.id"]
         ip.flags = entry["hdr.ipv4.flags"]
         ip.frag = entry["hdr.ipv4.frag"]
+        ip.ttl=entry['hdr.ipv4.ttl']
+        ip.proto=entry['hdr.ipv4.protocol']
         ip.chksum = entry["hdr.ipv4.checksum"]
+        ip.src=entry['hdr.ipv4.src_addr']
+        ip.dst=entry['hdr.ipv4.dst_addr']
+        ip.options = entry['hdr.ipv4.options']
         pkt = pkt / ip
         if entry['hdr.ipv4.protocol'] == IP_PROTOS.tcp:
-            tcp = TCP(sport=entry['hdr.tcp.src_port'], dport=entry['hdr.tcp.dst_port'], flags=entry['hdr.tcp.flags'], seq=entry['hdr.tcp.seq'], ack=entry['hdr.tcp.ack'], window=entry['hdr.tcp.window'], chksum=entry['hdr.tcp.checksum'])
+            tcp = TCP()
+            tcp.sport = entry['hdr.tcp.src_port']
+            tcp.dport = entry['hdr.tcp.dst_port']
+            tcp.seq = entry['hdr.tcp.seq']
+            tcp.ack = entry['hdr.tcp.ack']
+            tcp.dataofs = entry['hdr.tcp.dataofs']
+            tcp.reserved = entry['hdr.tcp.reserved']
+            tcp.flags = entry['hdr.tcp.flags']
+            tcp.window = entry['hdr.tcp.window']
+            tcp.chksum = entry['hdr.tcp.checksum']
+            tcp.urgptr = entry['hdr.tcp.urgptr']
+            tcp.options = entry['hdr.tcp.options']
             pkt = pkt / tcp
         elif entry['hdr.ipv4.protocol'] == IP_PROTOS.udp:
             udp = UDP(sport=entry['hdr.udp.src_port'], dport=entry['hdr.udp.dst_port'], chksum=entry['hdr.udp.checksum'])
@@ -76,16 +96,16 @@ def gen_packet(entry_pd):
     
     if pkt is not None:
         pkt.time = entry['tstamp']
-        pkt.len = entry['pktsize']
+        # pkt.len = entry['pktsize']
         if pkt.len != len(pkt):
             # Add padding
             # print("Adding padding of length: ", pkt.len - len(pkt))
-            pkt = pkt / Raw(b'\x00' * (pkt.len - len(pkt)))
+            pkt = pkt / Raw(b'\x00' * (ip.len - len(pkt[IP])))
 
     return pkt
 
 
-def parse_and_write_file(data_frame, start, end, write_file, total_tasks, task_idx):
+def parse_and_write_file(start, end, write_file, total_tasks, task_idx):
     maxentries = int(end - start)
     tot_pbar = maxentries
 
@@ -127,13 +147,13 @@ def parse_and_generate_pcap(data_frame, output_file):
     reporter = find_reporter()
     future_to_file = dict()
     i = 0
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max(os.cpu_count(), 8), initializer=register_reporter, initargs=[reporter]) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max(os.cpu_count(), 8), initializer=init_pool, initargs=[reporter, data_frame]) as executor:
         for file_to_write in files_to_write_list:
             task_idx += 1
             start = i * MAX_ENTRIES_PER_FILE
             end = min((i + 1) * MAX_ENTRIES_PER_FILE, num_entries)
-            print(f"Task {task_idx} will write from {start} to {end}: file {file_to_write}")
-            future_to_file[executor.submit(parse_and_write_file, data_frame, copy.deepcopy(start), copy.deepcopy(end), copy.deepcopy(file_to_write), copy.deepcopy(total_tasks), copy.deepcopy(task_idx))] = file_to_write
+            # print(f"Task {task_idx} will write from {start} to {end}: file {file_to_write}")
+            future_to_file[executor.submit(parse_and_write_file, copy.deepcopy(start), copy.deepcopy(end), copy.deepcopy(file_to_write), copy.deepcopy(total_tasks), copy.deepcopy(task_idx))] = file_to_write
             i += 1
         flush()
         print("Waiting for tasks to complete...")
@@ -168,9 +188,10 @@ def parse_and_generate_pcap(data_frame, output_file):
     return 0
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Program used to read unique IP addresses from a pkl file and write them to a BPF cuckoo hash map')
+    parser = argparse.ArgumentParser(description='Program used to generate PCAP file from a pickle format')
     parser.add_argument('--input', '-i', dest='input_file', help='Input file name', required=True)
     parser.add_argument("--output", "-o", dest="output_file", help="Output file name", required=True)
+    parser.add_argument("--use-mmap", "-m", dest="use_mmap", help="Use mmap to read the input file", action="store_true", default=False)
 
     args = parser.parse_args()
 
@@ -200,13 +221,39 @@ if __name__ == '__main__':
     except OSError:
         pass
 
-    print(f"Reading input file {args.input_file}")
-    data_frame = pd.read_pickle(args.input_file)
+    start_time = time.time()
+
+    print(f"Reading input file {args.input_file}. Use mmap: {args.use_mmap}")
+
+    if args.use_mmap:
+        with open(args.input_file, 'rb') as f:
+            with mmap.mmap(f.fileno(), 0, prot=mmap.ACCESS_READ) as mm:
+                data_frame = pd.read_pickle(mm)
+    else:
+        data_frame = pd.read_pickle(args.input_file)
+
     data_frame = data_frame.convert_dtypes()
 
     print(f"Input file {args.input_file} read successfully")
 
     parse_and_generate_pcap(data_frame, output_file)
+
+    end_time = time.time()
+    
+    # Calculate the elapsed time
+    elapsed_time = end_time - start_time
+
+    # Convert elapsed time to hours, minutes, and seconds
+    hours, remainder = divmod(elapsed_time, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    # Print the elapsed time
+    if hours >= 1:
+        print(f"Elapsed time: {int(hours)} hours {int(minutes)} minutes {int(seconds)} seconds")
+    elif minutes >= 1:
+        print(f"Elapsed time: {int(minutes)} minutes {int(seconds)} seconds")
+    else:
+        print(f"Elapsed time: {int(seconds)} seconds")
 
     print(f"Output file {output_file} written successfully")
 
