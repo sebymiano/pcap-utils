@@ -11,6 +11,7 @@ from scapy.data import ETH_P_IP, IP_PROTOS
 import pandas as pd
 
 import mmap
+import traceback
 
 MAX_ENTRIES_PER_FILE = 1000000
 
@@ -62,7 +63,8 @@ def gen_packet(entry_pd):
         ip.chksum = entry["hdr.ipv4.checksum"]
         ip.src=entry['hdr.ipv4.src_addr']
         ip.dst=entry['hdr.ipv4.dst_addr']
-        ip.options = entry['hdr.ipv4.options']
+        if entry['hdr.ipv4.options'] is not None and entry['hdr.ipv4.options'] != 0:
+            ip.options = entry['hdr.ipv4.options']
         pkt = pkt / ip
         if entry['hdr.ipv4.protocol'] == IP_PROTOS.tcp:
             tcp = TCP()
@@ -76,7 +78,8 @@ def gen_packet(entry_pd):
             tcp.window = entry['hdr.tcp.window']
             tcp.chksum = entry['hdr.tcp.checksum']
             tcp.urgptr = entry['hdr.tcp.urgptr']
-            tcp.options = entry['hdr.tcp.options']
+            if entry['hdr.tcp.options'] is not None and entry['hdr.tcp.options'] != 0:
+                tcp.options = entry['hdr.tcp.options']
             pkt = pkt / tcp
         elif entry['hdr.ipv4.protocol'] == IP_PROTOS.udp:
             udp = UDP(sport=entry['hdr.udp.src_port'], dport=entry['hdr.udp.dst_port'], chksum=entry['hdr.udp.checksum'])
@@ -108,14 +111,15 @@ def gen_packet(entry_pd):
 def parse_and_write_file(start, end, write_file, total_tasks, task_idx):
     maxentries = int(end - start)
     tot_pbar = maxentries
-
+    pkt_list = list()
     with PcapNgWriter(write_file) as writer:
         for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
             if j < maxentries:
                 entry = data_frame.iloc[start + j]
                 pkt = gen_packet(entry)
                 if pkt is not None:
-                    writer.write(pkt)
+                    pkt_list.append(pkt)
+        writer.write(pkt_list)
         writer.flush()
 
     return write_file
@@ -165,6 +169,7 @@ def parse_and_generate_pcap(data_frame, output_file):
                 final_list.append(file_written)
             except Exception as exc:
                 print('%r generated an exception: %s' % (file, exc))
+                traceback.print_exc()
 
     print(f"Created {len(final_list)} pcap files") 
 
@@ -191,7 +196,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program used to generate PCAP file from a pickle format')
     parser.add_argument('--input', '-i', dest='input_file', help='Input file name', required=True)
     parser.add_argument("--output", "-o", dest="output_file", help="Output file name", required=True)
-    parser.add_argument("--use-mmap", "-m", dest="use_mmap", help="Use mmap to read the input file", action="store_true", default=False)
+    parser.add_argument("--use-mmap", "-m", dest="use_mmap", help="Use mmap to read the input file", action="store_false", default=True)
 
     args = parser.parse_args()
 

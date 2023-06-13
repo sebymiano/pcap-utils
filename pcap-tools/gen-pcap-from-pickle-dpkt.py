@@ -16,6 +16,7 @@ import shutil
 import time
 import tempfile
 import traceback
+from scapy.volatile import RandString
 
 MAX_ENTRIES_PER_FILE = 1000000
 
@@ -64,7 +65,8 @@ def gen_packet(entry_pd):
         ip.sum = entry["hdr.ipv4.checksum"]
         ip.src = socket.inet_pton(socket.AF_INET, entry['hdr.ipv4.src_addr'])
         ip.dst = socket.inet_pton(socket.AF_INET, entry['hdr.ipv4.dst_addr'])
-        # ip.opts = bytes.fromhex(entry['hdr.ipv4.options']) if pd.notna(entry['hdr.ipv4.options']) else b''
+        if pd.notna(entry['hdr.ipv4.options.bytes']) and entry['hdr.ipv4.options.bytes'] and entry['hdr.ipv4.options.bytes'] != "0":
+            tcp.opts = bytes.fromhex(entry['hdr.ipv4.options.bytes'])
         pkt.data = ip
         if ip.p == dpkt.ip.IP_PROTO_TCP:
             tcp = dpkt.tcp.TCP()
@@ -74,11 +76,12 @@ def gen_packet(entry_pd):
             tcp.ack = entry['hdr.tcp.ack']
             tcp.off = entry['hdr.tcp.dataofs']
             tcp._rsv = entry['hdr.tcp.reserved']
-            # tcp.flags = entry['hdr.tcp.flags']
+            tcp.flags = entry['hdr.tcp.flags']
             tcp.win = entry['hdr.tcp.window']
             tcp.sum = entry['hdr.tcp.checksum']
             tcp.urp = entry['hdr.tcp.urgptr']
-            # tcp.opts = entry['hdr.tcp.options'] # dpkt does not directly support TCP options
+            if pd.notna(entry['hdr.tcp.options.bytes']) and entry['hdr.tcp.options.bytes'] and entry['hdr.tcp.options.bytes'] != "0":
+                tcp.opts = bytes.fromhex(entry['hdr.tcp.options.bytes'])
             ip.data = tcp
         elif ip.p == dpkt.ip.IP_PROTO_UDP:
             udp = dpkt.udp.UDP()
@@ -89,19 +92,18 @@ def gen_packet(entry_pd):
         elif ip.p == dpkt.ip.IP_PROTO_ICMP:
             icmp = dpkt.icmp.ICMP(type=entry['hdr.icmp.type'], code=entry['hdr.icmp.code'])
             icmp.sum = entry['hdr.icmp.checksum']
-            icmp.data = dpkt.icmp.ICMP.Echo(id=entry['hdr.icmp.id'], seq=entry['hdr.icmp.seq']) # Assuming ICMP echo request/response
+            if entry['hdr.icmp.type'] == dpkt.icmp.ICMP_ECHO or entry['hdr.icmp.type'] == dpkt.icmp.ICMP_ECHOREPLY:
+                icmp.data = dpkt.icmp.ICMP.Echo(id=entry['hdr.icmp.id'], seq=entry['hdr.icmp.seq']) # Assuming ICMP echo request/response
             ip.data = icmp
         else:
             return None, None
+
+        if ip.len > len(pkt.data):
+            pad_len = ip.len - len(pkt.data)
+            if pad_len > 0:
+                pkt.data += bytes(RandString(size=pad_len))
     else:
         return None, None
-
-    # if pkt is not None:
-    #     pkt.ts = entry['tstamp']
-    #     if pkt.len != len(pkt):
-    #         pad_len = ip.len - len(pkt.data)
-    #         if pad_len > 0:
-    #             pkt.data += b'\x00' * pad_len
 
     return pkt, entry['tstamp']
 
@@ -193,7 +195,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program used to generate PCAP file from a pickle format')
     parser.add_argument('--input', '-i', dest='input_file', help='Input file name', required=True)
     parser.add_argument("--output", "-o", dest="output_file", help="Output file name", required=True)
-    parser.add_argument("--use-mmap", "-m", dest="use_mmap", help="Use mmap to read the input file", action="store_true", default=False)
+    parser.add_argument("--use-mmap", "-m", dest="use_mmap", help="Use mmap to read the input file", action="store_false", default=True)
 
     args = parser.parse_args()
 
@@ -235,7 +237,6 @@ if __name__ == '__main__':
         data_frame = pd.read_pickle(args.input_file)
 
     data_frame = data_frame.convert_dtypes()
-    print(data_frame.dtypes)
     print(f"Input file {args.input_file} read successfully")
 
     parse_and_generate_pcap(data_frame, output_file)

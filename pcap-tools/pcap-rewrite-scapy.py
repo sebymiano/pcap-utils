@@ -172,6 +172,25 @@ if __name__ == '__main__':
     except OSError:
         pass
 
+    start_time = time.time()
+
     modify_and_write_pcap(input_file_path, output_file_path)
 
+    end_time = time.time()
+    
+    # Calculate the elapsed time
+    elapsed_time = end_time - start_time
+
+    # Convert elapsed time to hours, minutes, and seconds
+    hours, remainder = divmod(elapsed_time, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    # Print the elapsed time
+    if hours >= 1:
+        print(f"Elapsed time: {int(hours)} hours {int(minutes)} minutes {int(seconds)} seconds")
+    elif minutes >= 1:
+        print(f"Elapsed time: {int(minutes)} minutes {int(seconds)} seconds")
+    else:
+        print(f"Elapsed time: {int(seconds)} seconds")
+        
     print(f"Output file created: {output_file_path}")

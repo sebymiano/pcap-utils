@@ -15,6 +15,7 @@ import pandas as pd
 from json import JSONEncoder
 import mmap
 import time
+import binascii
 
 MAX_FILE_SIZE=1000000
 
@@ -104,7 +105,7 @@ header_type_dict2 = {
     'hdr.ipv4.src_addr': str,
     'hdr.ipv4.dst_addr': str,
     'hdr.ipv4.options': object,
-    'hdr.ipv4.options.bytes': object,
+    'hdr.ipv4.options.bytes': str,
     'hdr.tcp.src_port': np.uint16,
     'hdr.tcp.dst_port': np.uint16,
     'hdr.tcp.seq': np.uint32,
@@ -116,7 +117,7 @@ header_type_dict2 = {
     'hdr.tcp.checksum': np.uint16,
     'hdr.tcp.urgptr': np.uint16,
     'hdr.tcp.options': object,
-    'hdr.tcp.options.bytes': object,
+    'hdr.tcp.options.bytes': str,
     'hdr.udp.src_port': np.uint16,
     'hdr.udp.dst_port': np.uint16,
     'hdr.udp.checksum': np.uint16,
@@ -213,7 +214,11 @@ def get_pkt_info2(pkt, pkt_num):
         pdict['hdr.ipv4.src_addr']=pkt[IP].src
         pdict['hdr.ipv4.dst_addr']=pkt[IP].dst
         pdict['hdr.ipv4.options']=pkt[IP].options
-        pdict['hdr.ipv4.options.bytes']=get_field_bytes(pkt[IP], "options")
+        ip_options = get_field_bytes(pkt[IP], "options")
+        if len(ip_options) > 0:
+            pdict['hdr.ipv4.options.bytes']=binascii.hexlify(bytearray(ip_options))
+        else:
+            pdict['hdr.ipv4.options.bytes']=str()
 
     if pkt.haslayer(TCP):
         pdict['hdr.tcp.src_port']=int(pkt[TCP].sport)
@@ -227,7 +232,12 @@ def get_pkt_info2(pkt, pkt_num):
         pdict['hdr.tcp.checksum']=int(pkt[TCP].chksum)
         pdict['hdr.tcp.urgptr']=int(pkt[TCP].urgptr)
         pdict['hdr.tcp.options']=pkt[TCP].options
-        pdict['hdr.tcp.options.bytes']=get_field_bytes(pkt[TCP], "options")
+
+        tcp_options = get_field_bytes(pkt[TCP], "options")
+        if len(tcp_options) > 0:
+            pdict['hdr.tcp.options.bytes']=binascii.hexlify(bytearray(tcp_options))
+        else:
+            pdict['hdr.tcp.options.bytes']=str()
 
     if pkt.haslayer(UDP):
         pdict['hdr.udp.src_port']=int(pkt[UDP].sport)
