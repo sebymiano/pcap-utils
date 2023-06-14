@@ -37,7 +37,7 @@ sudo apt install wireshark-common
 
 ### Trace preparation
 There are different scripts in this folder that use different `engines` to process the traces, and save the results in different formats.
-We recommend using the [`trace-preparation_panda`](./trace-preparation_panda.py) script, which uses the `scapy` engine to process the traces, and saves the results in a `pkl` file.
+We recommend using the [`trace-preparation`](./trace-preparation.py) script, which uses the `scapy` engine to process the traces, and saves the results in a `pkl` file.
 
 The information extracted from the traces is saved in a `pandas` DataFrame, which can be easily manipulated using the `pandas` library.
 The list of fields extracted from the traces is shown in the table below.
@@ -77,7 +77,7 @@ The script will start by splitting the input trace into multiple files. Then, it
 
 ### Trace manipulation
 There are different scripts in this folder that can be used to manipulate the traces.
-We suggest to use the [`pcap-rewrite-scapy.py`](./pcap-rewrite-scapy.py) script, which uses the `scapy` engine to manipulate the traces.
+We suggest to use the [`gen-pcap-from-pickle-dpkt`](./gen-pcap-from-pickle-dpkt.py) script, which uses the `dpkt` engine to manipulate the traces.
 
 You can modify the `modify_packet` function inside the script to change the way the packets are manipulated.
 Even in this case, the script will split the input trace into multiple files, and process each file separately in parallel, generating multiple output files.
@@ -85,5 +85,5 @@ Then, it uses the `mergepcap` tool to merge the output files into a single trace
 
 You can run the script using the following command:
 ```bash
-python3 pcap-rewrite-scapy.py -i <input_file> -o <output_file>
+python3 gen-pcap-from-pickle-dpkt.py -i <input_file> -o <output_file>
 ```

@@ -16,8 +16,9 @@ from json import JSONEncoder
 import mmap
 import time
 import binascii
+from loguru import logger
 
-MAX_FILE_SIZE=1000000
+MAX_FILE_SIZE=1500000
 
 pbar_update_value = 0
 total_tasks = 0
@@ -258,7 +259,7 @@ def get_pkt_info2(pkt, pkt_num):
     return pdict
 
 
-def parse_file_and_append(file_name, task_idx):
+def parse_file_and_append(file_name, task_idx, possible_split):
     global total_tasks
 
     local_pkt_list = list()
@@ -268,7 +269,7 @@ def parse_file_and_append(file_name, task_idx):
     maxentries = int(output.strip())
     tot_pbar = maxentries
 
-    multiplier = (task_idx - 1) * MAX_FILE_SIZE
+    multiplier = (task_idx - 1) * possible_split
 
     with PcapReader(file_name) as pcap_reader:
         for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
@@ -290,15 +291,30 @@ def parse_file_and_append(file_name, task_idx):
     return frame
 
 
-def parse_pcap_into_panda(input_file, count, debug):
+def parse_pcap_into_panda(input_file):
     global total_tasks
     
     final_list = []
     arr = []
     file_list = []
 
+    command = f'capinfos {input_file} | grep "Number of packets" | tr -d " " | grep -oP "Numberofpackets=\K\d+"'
+    output = subprocess.check_output(command, shell=True, universal_newlines=True)
+    maxentries = int(output.strip())
+
+    logger.info(f"Total number of packets in the file: {maxentries}")
+
+    possible_split = int(np.ceil(maxentries / os.cpu_count()))
+    
+    if possible_split > MAX_FILE_SIZE:
+        # Split len by MAX_ENTRIES_PER_FILE to get the number of tasks
+        total_tasks = int(np.ceil(maxentries / MAX_FILE_SIZE))
+        possible_split = MAX_FILE_SIZE
+    else:
+        total_tasks = os.cpu_count()
+
     tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
-    ret = subprocess.call(f"editcap -c {MAX_FILE_SIZE} {input_file} {tmp_dir.name}/trace.pcap", shell=True)
+    ret = subprocess.call(f"editcap -c {possible_split} {input_file} {tmp_dir.name}/trace.pcap", shell=True)
     if ret != 0:
         print("editcap failed. Are you sure you have it installed?")
         exit(-1)
@@ -312,7 +328,7 @@ def parse_pcap_into_panda(input_file, count, debug):
     file_list = [tmp_dir.name + "/" + s for s in file_list]
 
     total_tasks = len(file_list)
-    print(f"Total number of tasks will be {total_tasks}")
+    logger.trace(f"Total number of tasks will be {total_tasks}")
 
     task_order_list = list()
     task_idx = 0
@@ -323,23 +339,25 @@ def parse_pcap_into_panda(input_file, count, debug):
     with concurrent.futures.ProcessPoolExecutor(max_workers=max(os.cpu_count(), 8), initializer=register_reporter, initargs=[reporter]) as executor:
         for file in file_list:
             task_idx += 1
-            future_to_file[executor.submit(parse_file_and_append, copy.deepcopy(file), copy.deepcopy(task_idx))] = file
+            future_to_file[executor.submit(parse_file_and_append, copy.deepcopy(file), copy.deepcopy(task_idx), copy.deepcopy(possible_split))] = file
         flush()
-        print("Waiting for tasks to complete...")
-        print(f"Total tasks: {len(future_to_file)}")
+        logger.info("Waiting for tasks to complete...")
+        logger.info(f"Total tasks: {len(future_to_file)}")
         for future in concurrent.futures.as_completed(future_to_file):
             file = future_to_file[future]
             try:
                 local_pkt_list = future.result()
                 final_list.append(local_pkt_list)
             except Exception as exc:
-                print('%r generated an exception: %s' % (file, exc))
+                logger.error('%r generated an exception: %s' % (file, exc))
+                logger.error(traceback.format_exc())
+                exit(-1)
 
-    print(f"Created {len(final_list)} numpy arrays") 
+    logger.success(f"Created {len(final_list)} numpy arrays") 
 
     arr = pd.concat(final_list)
     # arr = np.concatenate(final_list)
-    print(f"Final array size: {len(arr)} packets")
+    logger.debug(f"Final array size: {len(arr)} packets")
     tmp_dir.cleanup()
 
     # Sort the frame based on the pkt_num
@@ -354,8 +372,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Program used to convert a PCAP into a numpy data structure (easier to work with)')
     parser.add_argument("-i", "--input-file", required=True, type=str, help="Filename for input PCAP")
     parser.add_argument("-o", "--output-file", required=True, type=str, help="Filename for output parsed numpy file (for efficient loading)")
-    parser.add_argument("-c", "--count", metavar="count", type=int, default=-1, help="Number of packets to read before stopping. Default is -1 (no limit).")
-    parser.add_argument("-v","--verbose", action="store_true", help="Show additional debug info.")
     parser.add_argument("-n", "--numpy", action="store_true", help="Output numpy array instead of pandas dataframe (default .pkl).")
 
     args = parser.parse_args()
@@ -365,17 +381,17 @@ if __name__ == '__main__':
 
     # check if mergecap is installed
     if not shutil.which("mergecap"):
-        print("mergecap not found. Please install wireshark.")
+        logger.error("mergecap not found. Please install wireshark.")
         sys.exit(1)
     
     # check if editcap is installed
     if not shutil.which("editcap"):
-        print("editcap not found. Please install wireshark.")
+        logger.error("editcap not found. Please install wireshark.")
         sys.exit(1)
 
     # check if capinfos is installed
     if not shutil.which("capinfos"):
-        print("capinfos not found. Please install wireshark.")
+        logger.error("capinfos not found. Please install wireshark.")
         sys.exit(1)
 
     try:
@@ -385,9 +401,9 @@ if __name__ == '__main__':
 
     start_time = time.time()
 
-    frame = parse_pcap_into_panda(input_file_path, args.count, args.verbose)
+    frame = parse_pcap_into_panda(input_file_path)
 
-    print(f"Saving output file: {output_file_path}")
+    logger.info(f"Saving output file: {output_file_path}")
     # np.save(output_file_path, nparray)
     if args.numpy:
         numpy_array = frame.to_numpy()
@@ -406,10 +422,10 @@ if __name__ == '__main__':
 
     # Print the elapsed time
     if hours >= 1:
-        print(f"Elapsed time: {int(hours)} hours {int(minutes)} minutes {int(seconds)} seconds")
+        logger.info(f"Elapsed time: {int(hours)} hours {int(minutes)} minutes {int(seconds)} seconds")
     elif minutes >= 1:
-        print(f"Elapsed time: {int(minutes)} minutes {int(seconds)} seconds")
+        logger.info(f"Elapsed time: {int(minutes)} minutes {int(seconds)} seconds")
     else:
-        print(f"Elapsed time: {int(seconds)} seconds")
+        logger.info(f"Elapsed time: {int(seconds)} seconds")
 
-    print(f"Output file created: {output_file_path}")
+    logger.success(f"Output file created: {output_file_path}")

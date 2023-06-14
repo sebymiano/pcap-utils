@@ -16,9 +16,9 @@ import shutil
 import time
 import tempfile
 import traceback
-from scapy.volatile import RandString
+from loguru import logger
 
-MAX_ENTRIES_PER_FILE = 1000000
+MAX_ENTRIES_PER_FILE = 1500000
 
 def init_pool(reporter, the_data_frame):
     register_reporter(reporter)
@@ -101,7 +101,9 @@ def gen_packet(entry_pd):
         if ip.len > len(pkt.data):
             pad_len = ip.len - len(pkt.data)
             if pad_len > 0:
-                pkt.data += bytes(RandString(size=pad_len))
+                pkt_bytes = bytes(pkt)
+                pkt_bytes += os.urandom(pad_len)
+                pkt = dpkt.ethernet.Ethernet(pkt_bytes)
     else:
         return None, None
 
@@ -126,16 +128,22 @@ def parse_and_write_file(start, end, write_file, total_tasks, task_idx):
 def parse_and_generate_pcap(data_frame, output_file):
     num_entries = len(data_frame.index)
 
-    print(f"Number of entries: {num_entries}")
+    logger.info(f"Number of entries: {num_entries}")
 
-    # Split len by MAX_ENTRIES_PER_FILE to get the number of tasks
-    total_tasks = int(np.ceil(num_entries / MAX_ENTRIES_PER_FILE))
+    possible_split = int(np.ceil(num_entries / os.cpu_count()))
+    
+    if possible_split > MAX_ENTRIES_PER_FILE:
+        # Split len by MAX_ENTRIES_PER_FILE to get the number of tasks
+        total_tasks = int(np.ceil(num_entries / MAX_ENTRIES_PER_FILE))
+        possible_split = MAX_ENTRIES_PER_FILE
+    else:
+        total_tasks = os.cpu_count()
 
-    print(f"Total number of tasks will be {total_tasks}")
+    logger.trace(f"Total number of tasks will be {total_tasks} with {possible_split} entries per task")
 
     files_to_write_list = list()
     tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
-    print(f"Temporary directory created: {tmp_dir.name}")
+    logger.trace(f"Temporary directory created: {tmp_dir.name}")
     for i in range(total_tasks):
         write_file = os.path.join(tmp_dir.name, f"{output_file}_{i}")
         files_to_write_list.append(write_file)
@@ -150,43 +158,44 @@ def parse_and_generate_pcap(data_frame, output_file):
     reporter = find_reporter()
     future_to_file = dict()
     i = 0
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max(os.cpu_count(), 8), initializer=init_pool, initargs=[reporter, data_frame]) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count(), initializer=init_pool, initargs=[reporter, data_frame]) as executor:
         for file_to_write in files_to_write_list:
             task_idx += 1
-            start = i * MAX_ENTRIES_PER_FILE
-            end = min((i + 1) * MAX_ENTRIES_PER_FILE, num_entries)
+            start = i * possible_split
+            end = min((i + 1) * possible_split, num_entries)
             # print(f"Task {task_idx} will write from {start} to {end}: file {file_to_write}")
             future_to_file[executor.submit(parse_and_write_file, copy.deepcopy(start), copy.deepcopy(end), copy.deepcopy(file_to_write), copy.deepcopy(total_tasks), copy.deepcopy(task_idx))] = file_to_write
             i += 1
         flush()
-        print("Waiting for tasks to complete...")
-        print(f"Total tasks: {len(future_to_file)}")
+        logger.info("Waiting for tasks to complete...")
+        logger.info(f"Total tasks: {len(future_to_file)}")
         for future in concurrent.futures.as_completed(future_to_file):
             file = future_to_file[future]
             try:
                 file_written = future.result()
                 final_list.append(file_written)
             except Exception as exc:
-                print('%r generated an exception: %s' % (file, exc))
-                print(traceback.format_exc())            
+                logger.error('%r generated an exception: %s' % (file, exc))
+                logger.error(traceback.format_exc())
+                exit(-1)            
 
-    print(f"Created {len(final_list)} pcap files") 
+    logger.success(f"Created {len(final_list)} pcap files") 
 
     final_list.sort()
 
-    print("Let's concatenate all the files")
+    logger.debug("Let's concatenate all the files")
 
     # create a single string with elements separated by a space
     files_to_write = ' '.join(final_list)
 
-    print(f"The files to write are {files_to_write}")
+    logger.debug(f"The files to write are {files_to_write}")
 
     ret = subprocess.call(f"mergecap -a {files_to_write} -w {output_file}", shell=True)
     if ret != 0:
-        print(f"Error merging files into {output_file}")
+        logger.error(f"Error merging files into {output_file}")
         return -1
     
-    print(f"Finished merging all files into {output_file}")
+    logger.success(f"Finished merging all files into {output_file}")
     tmp_dir.cleanup()
 
     return 0
@@ -202,22 +211,22 @@ if __name__ == '__main__':
     output_file = args.output_file
     # Check if the input file exists
     if not os.path.exists(args.input_file):
-        print(f"Input file {args.input_file} does not exist")
+        logger.error(f"Input file {args.input_file} does not exist")
         exit(1)
 
     # check if mergecap is installed
     if not shutil.which("mergecap"):
-        print("mergecap not found. Please install wireshark.")
+        logger.error("mergecap not found. Please install wireshark.")
         sys.exit(1)
     
     # check if editcap is installed
     if not shutil.which("editcap"):
-        print("editcap not found. Please install wireshark.")
+        logger.error("editcap not found. Please install wireshark.")
         sys.exit(1)
 
     # check if capinfos is installed
     if not shutil.which("capinfos"):
-        print("capinfos not found. Please install wireshark.")
+        logger.error("capinfos not found. Please install wireshark.")
         sys.exit(1)
 
     try:
@@ -227,7 +236,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
 
-    print(f"Reading input file {args.input_file}. Use mmap: {args.use_mmap}")
+    logger.info(f"Reading input file {args.input_file}. Use mmap: {args.use_mmap}")
 
     if args.use_mmap:
         with open(args.input_file, 'rb') as f:
@@ -237,7 +246,7 @@ if __name__ == '__main__':
         data_frame = pd.read_pickle(args.input_file)
 
     data_frame = data_frame.convert_dtypes()
-    print(f"Input file {args.input_file} read successfully")
+    logger.success(f"Input file {args.input_file} read successfully")
 
     parse_and_generate_pcap(data_frame, output_file)
 
@@ -252,13 +261,13 @@ if __name__ == '__main__':
 
     # Print the elapsed time
     if hours >= 1:
-        print(f"Elapsed time: {int(hours)} hours {int(minutes)} minutes {int(seconds)} seconds")
+        logger.info(f"Elapsed time: {int(hours)} hours {int(minutes)} minutes {int(seconds)} seconds")
     elif minutes >= 1:
-        print(f"Elapsed time: {int(minutes)} minutes {int(seconds)} seconds")
+        logger.info(f"Elapsed time: {int(minutes)} minutes {int(seconds)} seconds")
     else:
-        print(f"Elapsed time: {int(seconds)} seconds")
+        logger.info(f"Elapsed time: {int(seconds)} seconds")
 
-    print(f"Output file {output_file} written successfully")
+    logger.success(f"Output file {output_file} written successfully")
 
 
 
