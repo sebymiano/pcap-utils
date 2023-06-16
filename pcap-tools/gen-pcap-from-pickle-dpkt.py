@@ -16,6 +16,7 @@ import shutil
 import time
 import tempfile
 import traceback
+import binascii
 from loguru import logger
 
 MAX_ENTRIES_PER_FILE = 1500000
@@ -35,12 +36,12 @@ def gen_packet(entry_pd):
     if pd.isna(entry['hdr.ethernet.src_mac']) or not entry['hdr.ethernet.src_mac']:
         pkt.src = b'\x00\x00\x00\x00\x00\x00'
     else:
-        pkt.src = dpkt.mac.MAC().str_to_tuple(entry['hdr.ethernet.src_mac'])
+        pkt.src = binascii.unhexlify(str(entry['hdr.ethernet.src_mac']).replace(':', ''))
     
     if pd.isna(entry['hdr.ethernet.dst_mac']) or not entry['hdr.ethernet.dst_mac']:
         pkt.dst = b'\x00\x00\x00\x00\x00\x00'
     else:
-        pkt.dst = dpkt.mac.MAC().str_to_tuple(entry['hdr.ethernet.dst_mac'])
+        pkt.dst = binascii.unhexlify(str(entry['hdr.ethernet.dst_mac']).replace(':', ''))
 
     if pd.isna(entry['hdr.ethernet.type']) or not entry['hdr.ethernet.type']:
         pkt.type = dpkt.ethernet.ETH_TYPE_IP
