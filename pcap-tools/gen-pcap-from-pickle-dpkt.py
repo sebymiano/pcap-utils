@@ -17,6 +17,7 @@ import time
 import tempfile
 import traceback
 import binascii
+import psutil
 from loguru import logger
 
 MAX_ENTRIES_PER_FILE = 1500000
@@ -130,16 +131,18 @@ def parse_and_write_file(start, end, write_file, total_tasks, task_idx):
 def parse_and_generate_pcap(data_frame, output_file):
     num_entries = len(data_frame.index)
 
+    phisical_cores = psutil.cpu_count(logical=False)
+
     logger.info(f"Number of entries: {num_entries}")
 
-    possible_split = int(np.ceil(num_entries / os.cpu_count()))
+    possible_split = int(np.ceil(num_entries / phisical_cores))
     
     if possible_split > MAX_ENTRIES_PER_FILE:
         # Split len by MAX_ENTRIES_PER_FILE to get the number of tasks
         total_tasks = int(np.ceil(num_entries / MAX_ENTRIES_PER_FILE))
         possible_split = MAX_ENTRIES_PER_FILE
     else:
-        total_tasks = os.cpu_count()
+        total_tasks = phisical_cores
 
     if possible_split < MIN_ENTRIES_PER_FILE:
         total_tasks = 1
@@ -164,7 +167,7 @@ def parse_and_generate_pcap(data_frame, output_file):
     reporter = find_reporter()
     future_to_file = dict()
     i = 0
-    with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count(), initializer=init_pool, initargs=[reporter, data_frame]) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=min(phisical_cores, 64), initializer=init_pool, initargs=[reporter, data_frame]) as executor:
         for file_to_write in files_to_write_list:
             task_idx += 1
             start = i * possible_split

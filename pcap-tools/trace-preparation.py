@@ -13,9 +13,10 @@ from scapy.all import *
 import pandas as pd
 
 from json import JSONEncoder
-import mmap
+import shutil
 import time
 import binascii
+import psutil
 from loguru import logger
 
 MAX_FILE_SIZE=1500000
@@ -294,6 +295,7 @@ def parse_file_and_append(file_name, task_idx, possible_split):
 def parse_pcap_into_panda(input_file):
     global total_tasks
     
+    physical_cores = psutil.cpu_count(logical=False)
     final_list = []
     arr = []
     file_list = []
@@ -304,14 +306,14 @@ def parse_pcap_into_panda(input_file):
 
     logger.info(f"Total number of packets in the file: {maxentries}")
 
-    possible_split = int(np.ceil(maxentries / os.cpu_count()))
+    possible_split = int(np.ceil(maxentries / physical_cores))
     
     if possible_split > MAX_FILE_SIZE:
         # Split len by MAX_ENTRIES_PER_FILE to get the number of tasks
         total_tasks = int(np.ceil(maxentries / MAX_FILE_SIZE))
         possible_split = MAX_FILE_SIZE
     else:
-        total_tasks = os.cpu_count()
+        total_tasks = physical_cores
 
     tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
     ret = subprocess.call(f"editcap -c {possible_split} {input_file} {tmp_dir.name}/trace.pcap", shell=True)
@@ -336,7 +338,7 @@ def parse_pcap_into_panda(input_file):
 
     reporter = find_reporter()
     future_to_file = dict()
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max(os.cpu_count(), 8), initializer=register_reporter, initargs=[reporter]) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=min(physical_cores, 64), initializer=register_reporter, initargs=[reporter]) as executor:
         for file in file_list:
             task_idx += 1
             future_to_file[executor.submit(parse_file_and_append, copy.deepcopy(file), copy.deepcopy(task_idx), copy.deepcopy(possible_split))] = file
