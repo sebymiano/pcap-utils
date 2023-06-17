@@ -20,6 +20,7 @@ import binascii
 from loguru import logger
 
 MAX_ENTRIES_PER_FILE = 1500000
+MIN_ENTRIES_PER_FILE = 10000
 
 def init_pool(reporter, the_data_frame):
     register_reporter(reporter)
@@ -139,6 +140,10 @@ def parse_and_generate_pcap(data_frame, output_file):
         possible_split = MAX_ENTRIES_PER_FILE
     else:
         total_tasks = os.cpu_count()
+
+    if possible_split < MIN_ENTRIES_PER_FILE:
+        total_tasks = 1
+        possible_split = MIN_ENTRIES_PER_FILE
 
     logger.trace(f"Total number of tasks will be {total_tasks} with {possible_split} entries per task")
 

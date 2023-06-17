@@ -21,7 +21,7 @@ import ipaddress
 from loguru import logger
 
 MAX_ENTRIES_PER_FILE = 1500000
-
+MIN_ENTRIES_PER_FILE = 10000
 class MetadataElem():
   def __init__(self):
     self.ethtype = 0
@@ -130,12 +130,6 @@ def gen_packet(entry_pd, entry_idx, cores, approach):
             udp.dport = entry['hdr.udp.dst_port']
             udp.sum = entry['hdr.udp.checksum']
             ip.data = udp
-        elif ip.p == dpkt.ip.IP_PROTO_ICMP:
-            icmp = dpkt.icmp.ICMP(type=entry['hdr.icmp.type'], code=entry['hdr.icmp.code'])
-            icmp.sum = entry['hdr.icmp.checksum']
-            if entry['hdr.icmp.type'] == dpkt.icmp.ICMP_ECHO or entry['hdr.icmp.type'] == dpkt.icmp.ICMP_ECHOREPLY:
-                icmp.data = dpkt.icmp.ICMP.Echo(id=entry['hdr.icmp.id'], seq=entry['hdr.icmp.seq']) # Assuming ICMP echo request/response
-            ip.data = icmp
         else:
             return None, None
 
@@ -185,6 +179,18 @@ def parse_and_write_file(start, end, write_file, total_tasks, task_idx, num_core
     if num_cores > 1:
         pkt_history = [md_initial] * (num_cores - 1)
 
+    if approach == "LOCAL" and start > 0 and num_cores > 1:
+        # Need to generate the metadata for the first packet
+        for i in range(1, start):
+            entry = data_frame.iloc[start - i]
+            pkt, ts = gen_packet(entry, start - i, num_cores, approach)
+            if pkt is not None:
+                curr_md = get_md_from_pkt(pkt)
+                # update pkt_history
+                pkt_history.insert(0, curr_md)
+            if len(pkt_history) == num_cores - 1:
+                break
+
     with open(write_file, "wb") as f:
         writer = dpkt.pcap.Writer(f)
         for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
@@ -230,6 +236,11 @@ def parse_and_generate_pcap(data_frame, output_file, num_cores, approach):
         possible_split = MAX_ENTRIES_PER_FILE
     else:
         total_tasks = os.cpu_count()
+
+    if possible_split < MIN_ENTRIES_PER_FILE:
+        total_tasks = 1
+        possible_split = MIN_ENTRIES_PER_FILE
+
 
     logger.trace(f"Total number of tasks will be {total_tasks} with {possible_split} entries per task")
 
