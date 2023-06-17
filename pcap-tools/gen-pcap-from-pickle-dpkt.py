@@ -130,7 +130,7 @@ def parse_and_write_file(start, end, write_file, total_tasks, task_idx):
 
 def parse_and_generate_pcap(data_frame, output_file):
     num_entries = len(data_frame.index)
-
+    output_file_name = os.path.splitext(os.path.basename(output_file))[0]
     phisical_cores = psutil.cpu_count(logical=False)
 
     logger.info(f"Number of entries: {num_entries}")
@@ -154,7 +154,7 @@ def parse_and_generate_pcap(data_frame, output_file):
     tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
     logger.trace(f"Temporary directory created: {tmp_dir.name}")
     for i in range(total_tasks):
-        write_file = os.path.join(tmp_dir.name, f"{output_file}_{i}")
+        write_file = os.path.join(tmp_dir.name, f"{output_file_name}_{i}")
         files_to_write_list.append(write_file)
 
     final_list = list()

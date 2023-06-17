@@ -225,6 +225,7 @@ def parse_and_write_file(start, end, write_file, total_tasks, task_idx, num_core
 
 def parse_and_generate_pcap(data_frame, output_file, num_cores, approach):
     num_entries = len(data_frame.index)
+    output_file_name = os.path.splitext(os.path.basename(output_file))[0]
 
     phisical_cores = psutil.cpu_count(logical=False)
 
@@ -252,7 +253,7 @@ def parse_and_generate_pcap(data_frame, output_file, num_cores, approach):
     for i in range(1, num_cores + 1):
         files_to_write_dict[i] = list()
         for j in range(total_tasks):
-            write_file = os.path.join(tmp_dir.name, f"{output_file}_{approach}_core{i:03}_{j:03}")
+            write_file = os.path.join(tmp_dir.name, f"{output_file_name}_{approach}_core{i:03}_{j:03}")
             files_to_write_dict[i].append(write_file)
 
     for core in range(1, num_cores + 1):
