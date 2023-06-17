@@ -249,15 +249,15 @@ def parse_and_generate_pcap(data_frame, output_file, tmp_dir_path, num_cores, ap
     logger.trace(f"Total number of tasks will be {total_tasks} with {possible_split} entries per task")
 
     files_to_write_dict = dict()
-    tmp_dir = tempfile.TemporaryDirectory(dir = tmp_dir_path)
-    logger.trace(f"Temporary directory created: {tmp_dir.name}")
-    for i in range(1, num_cores + 1):
-        files_to_write_dict[i] = list()
-        for j in range(total_tasks):
-            write_file = os.path.join(tmp_dir.name, f"{output_file_name}_{approach}_core{i:03}_{j:03}")
-            files_to_write_dict[i].append(write_file)
 
     for core in range(1, num_cores + 1):
+        tmp_dir = tempfile.TemporaryDirectory(dir = tmp_dir_path)
+        logger.trace(f"Temporary directory created: {tmp_dir.name}")
+        files_to_write_dict[core] = list()
+        for j in range(total_tasks):
+            write_file = os.path.join(tmp_dir.name, f"{output_file_name}_{approach}_core{core:03}_{j:03}")
+            files_to_write_dict[core].append(write_file)
+
         final_list = list()
         task_idx = 0
         start = 0
@@ -300,14 +300,14 @@ def parse_and_generate_pcap(data_frame, output_file, tmp_dir_path, num_cores, ap
 
         logger.debug(f"The files to write are {files_to_write}")
 
-        ret = subprocess.call(f"mergecap -a {files_to_write} -w {output_file}_{approach}_{core}.pcap", shell=True)
+        ret = subprocess.call(f"mergecap -a {files_to_write} -w {output_file}_{approach}_{core:02}.pcap", shell=True)
         if ret != 0:
-            logger.error(f"Error merging files into {output_file}_{approach}_{core}")
+            logger.error(f"Error merging files into {output_file}_{approach}_{core:02}")
             return -1
         
-        logger.success(f"Finished merging all files into {output_file}_{approach}_{core}")
+        logger.success(f"Finished merging all files into {output_file}_{approach}_{core:02}")
 
-    tmp_dir.cleanup()
+        tmp_dir.cleanup()
 
     return 0
 
