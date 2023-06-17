@@ -3,6 +3,7 @@ import os
 from atpbar import atpbar, register_reporter, find_reporter, flush
 import concurrent.futures 
 import numpy as np
+import copy
 
 import dpkt
 import socket
@@ -223,7 +224,7 @@ def parse_and_write_file(start, end, write_file, total_tasks, task_idx, num_core
 
     return write_file
 
-def parse_and_generate_pcap(data_frame, output_file, num_cores, approach):
+def parse_and_generate_pcap(data_frame, output_file, tmp_dir_path, num_cores, approach):
     num_entries = len(data_frame.index)
     output_file_name = os.path.splitext(os.path.basename(output_file))[0]
 
@@ -248,7 +249,7 @@ def parse_and_generate_pcap(data_frame, output_file, num_cores, approach):
     logger.trace(f"Total number of tasks will be {total_tasks} with {possible_split} entries per task")
 
     files_to_write_dict = dict()
-    tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
+    tmp_dir = tempfile.TemporaryDirectory(dir = tmp_dir_path)
     logger.trace(f"Temporary directory created: {tmp_dir.name}")
     for i in range(1, num_cores + 1):
         files_to_write_dict[i] = list()
@@ -273,7 +274,7 @@ def parse_and_generate_pcap(data_frame, output_file, num_cores, approach):
                 start = i * possible_split
                 end = min((i + 1) * possible_split, num_entries)
                 # print(f"Task {task_idx} will write from {start} to {end}: file {file_to_write}")
-                future_to_file[executor.submit(parse_and_write_file, start, end, file_to_write, total_tasks, task_idx, core, approach)] = file_to_write
+                future_to_file[executor.submit(parse_and_write_file, copy.deepcopy(start), copy.deepcopy(end), copy.deepcopy(file_to_write), copy.deepcopy(total_tasks), copy.deepcopy(task_idx), copy.deepcopy(core), copy.deepcopy(approach))] = file_to_write
                 i += 1
             flush()
             logger.info("Waiting for tasks to complete...")
@@ -319,6 +320,7 @@ if __name__ == '__main__':
     parser.add_argument("--approach", "-a", dest="approach", help="Approach to use to generate the PCAP file", choices=["FLOW_AFFINITY", "SHARED", "LOCAL"], default="FLOW_AFFINITY")
     parser.add_argument("--src-mac", "-s", dest="src_mac", help="Source MAC address to use in the generated PCAP file", default="00:00:00:00:00:01")
     parser.add_argument("--dst-mac", "-d", dest="dst_mac", help="Destination MAC address to use in the generated PCAP file", default="00:00:00:00:00:02")
+    parser.add_argument("--tmp-dir", "-t", dest="tmp_dir", help="Temporary directory to use to store the intermediate files", default="/tmp")
 
     args = parser.parse_args()
 
@@ -370,7 +372,7 @@ if __name__ == '__main__':
     data_frame["hdr.ethernet.type"] = dpkt.ethernet.ETH_TYPE_IP
 
     data_frame = data_frame.convert_dtypes()
-    parse_and_generate_pcap(data_frame, output_file, args.num_cores, args.approach)
+    parse_and_generate_pcap(data_frame, output_file, args.tmp_dir, args.num_cores, args.approach)
 
     end_time = time.time()
     
