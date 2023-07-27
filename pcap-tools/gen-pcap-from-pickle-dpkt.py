@@ -154,7 +154,7 @@ def parse_and_generate_pcap(data_frame, output_file):
     tmp_dir = tempfile.TemporaryDirectory(dir = "/tmp")
     logger.trace(f"Temporary directory created: {tmp_dir.name}")
     for i in range(total_tasks):
-        write_file = os.path.join(tmp_dir.name, f"{output_file_name}_{i}")
+        write_file = os.path.join(tmp_dir.name, f"{output_file_name}_{i:03}")
         files_to_write_list.append(write_file)
 
     final_list = list()
