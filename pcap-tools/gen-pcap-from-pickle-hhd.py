@@ -242,8 +242,16 @@ def parse_and_generate_pcap(data_frame, output_file, tmp_dir_path, num_cores, ap
         total_tasks = phisical_cores
 
     if possible_split < MIN_ENTRIES_PER_FILE:
-        total_tasks = 1
-        possible_split = MIN_ENTRIES_PER_FILE
+        # Find the maximum number of total tasks such that int(np.ceil(num_entries / total_tasks)) > MIN_ENTRIES_PER_FILE
+        total_tasks = phisical_cores
+        while total_tasks > 0 and int(np.ceil(num_entries / total_tasks)) < MIN_ENTRIES_PER_FILE:
+            total_tasks -= 1
+
+        if total_tasks > 0:
+            possible_split = int(np.ceil(num_entries / total_tasks))
+        else:
+            total_tasks = 1
+            possible_split = num_entries
 
 
     logger.trace(f"Total number of tasks will be {total_tasks} with {possible_split} entries per task")

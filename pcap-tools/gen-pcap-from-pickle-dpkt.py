@@ -148,8 +148,16 @@ def parse_and_generate_pcap(data_frame, output_file, pkt_size):
         total_tasks = phisical_cores
 
     if possible_split < MIN_ENTRIES_PER_FILE:
-        total_tasks = 1
-        possible_split = MIN_ENTRIES_PER_FILE
+        # Find the maximum number of total tasks such that int(np.ceil(num_entries / total_tasks)) > MIN_ENTRIES_PER_FILE
+        total_tasks = phisical_cores
+        while total_tasks > 0 and int(np.ceil(num_entries / total_tasks)) < MIN_ENTRIES_PER_FILE:
+            total_tasks -= 1
+
+        if total_tasks > 0:
+            possible_split = int(np.ceil(num_entries / total_tasks))
+        else:
+            total_tasks = 1
+            possible_split = num_entries
 
     logger.trace(f"Total number of tasks will be {total_tasks} with {possible_split} entries per task")
 
@@ -219,6 +227,7 @@ if __name__ == '__main__':
     parser.add_argument("--use-mmap", "-m", dest="use_mmap", help="Use mmap to read the input file", action="store_false", default=True)
     parser.add_argument("--size", "-s", dest="size", help="Size of the pkt in Bytes", type=int, default=0)
     parser.add_argument("--format", "-f", dest="format", help="Format of the output file", choices=["pcap", "pcapng"], default="pcapng")
+    parser.add_argument("--max-pkts", "-p", dest="max_pkts", help="Maximum number of pkts to write (0 means use the same as input file)", type=int, default=0)
 
     args = parser.parse_args()
 
@@ -261,6 +270,9 @@ if __name__ == '__main__':
 
     data_frame = data_frame.convert_dtypes()
     logger.success(f"Input file {args.input_file} read successfully")
+
+    if args.max_pkts > 0:
+        data_frame = data_frame.iloc[:args.max_pkts]
 
     parse_and_generate_pcap(data_frame, output_file, args.size)
 
