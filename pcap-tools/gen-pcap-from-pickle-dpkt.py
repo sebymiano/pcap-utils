@@ -28,7 +28,7 @@ def init_pool(reporter, the_data_frame):
     global data_frame
     data_frame = the_data_frame
 
-def gen_packet(entry_pd):
+def gen_packet(entry_pd, pkt_size):
     pkt = None
 
     entry = entry_pd.to_dict()
@@ -101,6 +101,9 @@ def gen_packet(entry_pd):
         else:
             return None, None
 
+        if pkt_size > 0:
+            ip.len = pkt_size
+            
         if ip.len > len(pkt.data):
             pad_len = ip.len - len(pkt.data)
             if pad_len > 0:
@@ -113,7 +116,7 @@ def gen_packet(entry_pd):
     return pkt, entry['tstamp']
 
 
-def parse_and_write_file(start, end, write_file, total_tasks, task_idx):
+def parse_and_write_file(start, end, write_file, total_tasks, task_idx, pkt_size):
     maxentries = int(end - start)
     tot_pbar = maxentries
 
@@ -122,13 +125,13 @@ def parse_and_write_file(start, end, write_file, total_tasks, task_idx):
         for j in atpbar(range(tot_pbar), name=f"Task {task_idx}/{total_tasks}"):
             if j < maxentries:
                 entry = data_frame.iloc[start + j]
-                pkt, ts = gen_packet(entry)
+                pkt, ts = gen_packet(entry, pkt_size)
                 if pkt is not None:
                     writer.writepkt(pkt, ts=ts)
 
     return write_file
 
-def parse_and_generate_pcap(data_frame, output_file):
+def parse_and_generate_pcap(data_frame, output_file, pkt_size):
     num_entries = len(data_frame.index)
     output_file_name = os.path.splitext(os.path.basename(output_file))[0]
     phisical_cores = psutil.cpu_count(logical=False)
@@ -173,7 +176,7 @@ def parse_and_generate_pcap(data_frame, output_file):
             start = i * possible_split
             end = min((i + 1) * possible_split, num_entries)
             # print(f"Task {task_idx} will write from {start} to {end}: file {file_to_write}")
-            future_to_file[executor.submit(parse_and_write_file, copy.deepcopy(start), copy.deepcopy(end), copy.deepcopy(file_to_write), copy.deepcopy(total_tasks), copy.deepcopy(task_idx))] = file_to_write
+            future_to_file[executor.submit(parse_and_write_file, copy.deepcopy(start), copy.deepcopy(end), copy.deepcopy(file_to_write), copy.deepcopy(total_tasks), copy.deepcopy(task_idx), copy.deepcopy(pkt_size))] = file_to_write
             i += 1
         flush()
         logger.info("Waiting for tasks to complete...")
@@ -214,6 +217,7 @@ if __name__ == '__main__':
     parser.add_argument('--input', '-i', dest='input_file', help='Input file name', required=True)
     parser.add_argument("--output", "-o", dest="output_file", help="Output file name", required=True)
     parser.add_argument("--use-mmap", "-m", dest="use_mmap", help="Use mmap to read the input file", action="store_false", default=True)
+    parser.add_argument("--size", "-s", dest="size", help="Size of the pkt in Bytes", type=int, default=0)
 
     args = parser.parse_args()
 
@@ -257,7 +261,7 @@ if __name__ == '__main__':
     data_frame = data_frame.convert_dtypes()
     logger.success(f"Input file {args.input_file} read successfully")
 
-    parse_and_generate_pcap(data_frame, output_file)
+    parse_and_generate_pcap(data_frame, output_file, args.size)
 
     end_time = time.time()
     
