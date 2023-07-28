@@ -265,7 +265,7 @@ if __name__ == '__main__':
     parse_and_generate_pcap(data_frame, output_file, args.size)
 
     if (args.format == "pcap"):
-        ret = subprocess.call(f"editcap -F pcap {output_file} -w {output_file}.tmp", shell=True)
+        ret = subprocess.call(f"editcap -F pcap {output_file} {output_file}.tmp", shell=True)
         if ret != 0:
             logger.error(f"Error converting files into {output_file}")
             exit(-1)
