@@ -103,7 +103,7 @@ def gen_packet(entry_pd, pkt_size):
 
         if pkt_size > 0:
             ip.len = pkt_size
-            
+
         if ip.len > len(pkt.data):
             pad_len = ip.len - len(pkt.data)
             if pad_len > 0:
@@ -218,6 +218,7 @@ if __name__ == '__main__':
     parser.add_argument("--output", "-o", dest="output_file", help="Output file name", required=True)
     parser.add_argument("--use-mmap", "-m", dest="use_mmap", help="Use mmap to read the input file", action="store_false", default=True)
     parser.add_argument("--size", "-s", dest="size", help="Size of the pkt in Bytes", type=int, default=0)
+    parser.add_argument("--format", "-f", dest="format", help="Format of the output file", choices=["pcap", "pcapng"], default="pcapng")
 
     args = parser.parse_args()
 
@@ -262,6 +263,14 @@ if __name__ == '__main__':
     logger.success(f"Input file {args.input_file} read successfully")
 
     parse_and_generate_pcap(data_frame, output_file, args.size)
+
+    if (args.format == "pcap"):
+        ret = subprocess.call(f"editcap -F pcap {output_file} -w {output_file}.tmp", shell=True)
+        if ret != 0:
+            logger.error(f"Error converting files into {output_file}")
+            exit(-1)
+        os.remove(output_file)
+        os.rename(f"{output_file}.tmp", output_file)
 
     end_time = time.time()
     
