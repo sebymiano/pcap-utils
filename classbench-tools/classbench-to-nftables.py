@@ -167,6 +167,8 @@ def parse_and_write_file(input_file, output_file):
                 if proto_str != "":
                     string_list += fr" ip protocol{proto_str} "
 
+            if not string_list.endswith(" "):
+                string_list += " "
             string_list += fr"counter {defaultAction}"
 
             output_file.write(string_list+"\n")
