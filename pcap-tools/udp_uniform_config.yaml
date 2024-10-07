@@ -1,0 +1,14 @@
+---
+ num_flows: 1000
+ src_ip_range: "10.10.1.0/24"
+ dst_ip_range: "10.10.2.0/24"
+ src_mac: "f8:f2:1e:b2:65:70"
+ dst_mac: "f8:f2:1e:b2:43:00"
+ packets_per_flow: 150
+ packet_size: 64
+ batch_size: 1
+ generate_responses: false
+ src_port_start: 1024
+ src_port_end: 8080
+ dst_port_start: 9745
+ dst_port_end: 50214

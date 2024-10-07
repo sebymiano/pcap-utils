@@ -8,3 +8,4 @@ randmac>=0.0.2
 scapy>=2.5.0
 loguru>=0.7.0
 psutil
+PyYAML
