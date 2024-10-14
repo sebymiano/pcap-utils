@@ -62,7 +62,7 @@ def create_interleaved_udp_traffic(src_ip_range, dst_ip_range, src_mac, dst_mac,
             src_ip, dst_ip, src_port, dst_port = flow
             
             # Generate a batch of UDP packets and responses for this flow
-            packets = generate_udp_packets_batch(src_ip, dst_ip, dst_mac, src_mac, src_port, dst_port, packet_size, batch_size, generate_responses)
+            packets = generate_udp_packets_batch(src_ip, dst_ip, src_mac, dst_mac, src_port, dst_port, packet_size, batch_size, generate_responses)
             total_packets.extend(packets)
             
             # Update progress bar for the number of packets generated in this batch
