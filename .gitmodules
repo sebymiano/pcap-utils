@@ -1,3 +1,6 @@
 [submodule "bpf-pcap-tools/libcuckoo-bpf"]
 	path = bpf-pcap-tools/libcuckoo-bpf
 	url = https://github.com/sebymiano/cuckoo_hash_bpf.git
+[submodule "pcap-traffic-gen/trex/trex-core"]
+	path = pcap-traffic-gen/trex/trex-core
+	url = https://github.com/cisco-system-traffic-generator/trex-core.git
